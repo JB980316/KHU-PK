@@ -7,8 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1ZQfW040HahTsU-NkHMkxnehEWX4e95Zg
 """
 
-# Pharmacokinetics Modeling Application (Streamlit-based: Single and Multiple Dosing Models)
-
 import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
@@ -125,7 +123,7 @@ elif model_type.startswith("2-Compartment PO"):
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
     k21 = st.number_input("k21 (1/hr)", value=0.05)
-    params = {'dose': dose, 'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21}
+   	params = {'dose': dose, 'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21}
 elif model_type == "1-Compartment Infusion":
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
     kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
@@ -140,30 +138,31 @@ elif model_type == "2-Compartment Infusion":
     params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21, 'infusion_time': infusion_time}
 
 # Set duration
-duration = tau * n_doses * 2 if repeat else 24
+# 반복 시 마지막 투여 시점까지
+duration = tau * n_doses if repeat else 24
 
 # Generate time vector
 time = create_time_vector(duration)
 
 # Compute concentration based on selected model
-if model_type == "1-Compartment IV" or model_type == "1-Compartment IV (Multiple Dosing)":
-    y0 = [0] if repeat else [dose]
+if model_type.startswith("1-Compartment IV"):
+    y0 = [dose]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params, repeat)
     conc = result[:, 0] / Vd
-elif model_type == "1-Compartment PO" or model_type == "1-Compartment PO (Multiple Dosing)":
-    y0 = [dose, 0] if not repeat else [0, 0]
+elif model_type.startswith("1-Compartment PO"):
+    y0 = [dose, 0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_po_ode, y0, params, repeat)
     conc = result[:, 1] / Vd
 elif model_type == "1-Compartment Infusion":
     y0 = [0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_infusion_ode, y0, params, repeat)
     conc = result[:, 0] / Vd
-elif model_type == "2-Compartment IV" or model_type == "2-Compartment IV (Multiple Dosing)":
-    y0 = [0, 0] if repeat else [dose, 0]
+elif model_type.startswith("2-Compartment IV"):
+    y0 = [dose, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_iv_ode, y0, params, repeat)
     conc = result[:, 0] / V1
-elif model_type == "2-Compartment PO" or model_type == "2-Compartment PO (Multiple Dosing)":
-    y0 = [dose, 0, 0] if not repeat else [0, 0, 0]
+elif model_type.startswith("2-Compartment PO"):
+    y0 = [dose, 0, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_po_ode, y0, params, repeat)
     conc = result[:, 1] / V1
 elif model_type == "2-Compartment Infusion":
@@ -171,7 +170,7 @@ elif model_type == "2-Compartment Infusion":
     result = simulate_ode(time, tau, int(n_doses), two_compartment_infusion_ode, y0, params, repeat)
     conc = result[:, 0] / V1
 
-# Restore steady-state result section
+# Plot and metrics
 if st.button("Plot Graph"):
     fig, ax = plt.subplots()
     ax.plot(time, conc, label='Plasma Concentration')
@@ -180,11 +179,12 @@ if st.button("Plot Graph"):
     ax.set_title('Concentration-Time Profile')
     ax.legend()
     st.pyplot(fig)
-    # This section assumes conc is computed prior to plotting
+
+    # AUC 계산
     AUC = simpson(conc, time)
-    Cavg = AUC / (time[-1] - time[0])
 
     if repeat:
+        # 마지막 두 τ 구간에서 steady-state 지표 계산
         last_start = int(len(time) - (2 * tau / (time[1] - time[0])))
         recent_conc = conc[last_start:]
         delta_c = np.abs(np.max(recent_conc) - np.min(recent_conc))
@@ -195,9 +195,9 @@ if st.button("Plot Graph"):
         Css_min = np.min(recent_conc)
         Css_avg = simpson(recent_conc, time[last_start:]) / (time[-1] - time[last_start])
 
-        st.markdown(f"**Steady-state average concentration (Cavg):** {Css_avg:.2f} mg/L")
-        st.markdown(f"**Steady-state maximum concentration (Cmax):** {Css_max:.2f} mg/L")
-        st.markdown(f"**Steady-state minimum concentration (Cmin):** {Css_min:.2f} mg/L")
+        st.markdown(f"**Steady-state average concentration (Cavg):** {Css_avg:.4f} mg/L")
+        st.markdown(f"**Steady-state maximum concentration (Cmax):** {Css_max:.4f} mg/L")
+        st.markdown(f"**Steady-state minimum concentration (Cmin):** {Css_min:.4f} mg/L")
         st.markdown(f"**Total AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
         st.markdown(f"**Steady-state status:** {ss_text}")
     else:
@@ -206,5 +206,4 @@ if st.button("Plot Graph"):
         st.markdown(f"**Cmax:** {Cmax:.2f} mg/L")
         st.markdown(f"**Tmax:** {Tmax:.2f} hr")
         st.markdown(f"**AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
-        st.markdown(f"**Cavg:** {Cavg:.2f} mg/L")
 
