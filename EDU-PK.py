@@ -13,8 +13,10 @@ import streamlit as st
 from scipy.integrate import odeint, simpson
 
 # ====== Common Functions ======
+
 def create_time_vector(duration, dt=0.1):
     return np.arange(0, duration + dt, dt)
+
 
 def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
     full_result = np.zeros((len(time), len(y0)))
@@ -38,10 +40,12 @@ def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
     return full_result
 
 # ====== Model Definitions ======
+
 def one_compartment_iv_ode(y, t, p):
     A = y[0]
     dA_dt = -p['kel'] * A
     return [dA_dt]
+
 
 def one_compartment_po_ode(y, t, p):
     Ag, A = y
@@ -49,11 +53,13 @@ def one_compartment_po_ode(y, t, p):
     dA_dt = p['ka'] * Ag - p['kel'] * A
     return [dAg_dt, dA_dt]
 
+
 def one_compartment_infusion_ode(y, t, p):
     A = y[0]
     k0 = p['dose'] / p['infusion_time'] if t <= p['infusion_time'] else 0
     dA_dt = k0 - p['kel'] * A
     return [dA_dt]
+
 
 def two_compartment_iv_ode(y, t, p):
     A1, A2 = y
@@ -61,12 +67,14 @@ def two_compartment_iv_ode(y, t, p):
     dA2dt = p['k12'] * A1 - p['k21'] * A2
     return [dA1dt, dA2dt]
 
+
 def two_compartment_po_ode(y, t, p):
     Ag, A1, A2 = y
     dAgdt = -p['ka'] * Ag
     dA1dt = p['ka'] * Ag - p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
     dA2dt = p['k12'] * A1 - p['k21'] * A2
     return [dAgdt, dA1dt, dA2dt]
+
 
 def two_compartment_infusion_ode(y, t, p):
     A1, A2 = y
@@ -76,26 +84,31 @@ def two_compartment_infusion_ode(y, t, p):
     return [dA1dt, dA2dt]
 
 # ====== Streamlit UI ======
+
 st.set_page_config(page_title="EDU-PK Simulator", page_icon="💊")
 st.title("EDU-PK Simulator")
 
-model_type = st.selectbox("Select a model", [
-    "1-Compartment IV",
-    "1-Compartment IV (Multiple Dosing)",
-    "1-Compartment PO",
-    "1-Compartment PO (Multiple Dosing)",
-    "1-Compartment Infusion",
-    "2-Compartment IV",
-    "2-Compartment IV (Multiple Dosing)",
-    "2-Compartment PO",
-    "2-Compartment PO (Multiple Dosing)",
-    "2-Compartment Infusion"
-])
+model_type = st.selectbox(
+    "Select a model",
+    [
+        "1-Compartment IV",
+        "1-Compartment IV (Multiple Dosing)",
+        "1-Compartment PO",
+        "1-Compartment PO (Multiple Dosing)",
+        "1-Compartment Infusion",
+        "2-Compartment IV",
+        "2-Compartment IV (Multiple Dosing)",
+        "2-Compartment PO",
+        "2-Compartment PO (Multiple Dosing)",
+        "2-Compartment Infusion"
+    ]
+)
 
 repeat = "Multiple Dosing" in model_type
 infusion = "Infusion" in model_type
 po = "PO" in model_type
 iv = "IV" in model_type and not po and not infusion
+
 
 dose = st.number_input("Dose per administration (mg)", value=500.0)
 tau = st.number_input("Dosing interval τ (hr)", value=8.0) if repeat else None
@@ -123,7 +136,7 @@ elif model_type.startswith("2-Compartment PO"):
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
     k21 = st.number_input("k21 (1/hr)", value=0.05)
-   	params = {'dose': dose, 'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21}
+    params = {'dose': dose, 'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21}
 elif model_type == "1-Compartment Infusion":
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
     kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
@@ -206,4 +219,3 @@ if st.button("Plot Graph"):
         st.markdown(f"**Cmax:** {Cmax:.2f} mg/L")
         st.markdown(f"**Tmax:** {Tmax:.2f} hr")
         st.markdown(f"**AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
-
