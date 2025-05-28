@@ -79,7 +79,7 @@ def two_compartment_infusion_ode(y, t, p):
 
 # ====== Streamlit UI ======
 st.set_page_config(page_title="EDU-PK Simulator", page_icon="💊")
-st.title("Pharmacokinetic Model Simulator")
+st.title("EDU-PK Simulator")
 
 model_type = st.selectbox("Select a model", [
     "1-Compartment IV",
