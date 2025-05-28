@@ -26,7 +26,7 @@ def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
         for i in range(n_doses):
             t_start = i * tau
             t_end = time[-1] if i == n_doses - 1 else (i + 1) * tau
-            # Include final time point in last interval to avoid drop-off
+            # Include final point in last interval
             if i == n_doses - 1:
                 mask = (time >= t_start) & (time <= t_end)
             else:
@@ -47,9 +47,7 @@ def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
 
 def one_compartment_iv_ode(y, t, p):
     A = y[0]
-    dA_dt = -p['kel'] * A
-    return [dA_dt]
-
+    return [-p['kel'] * A]
 
 def one_compartment_po_ode(y, t, p):
     Ag, A = y
@@ -57,38 +55,32 @@ def one_compartment_po_ode(y, t, p):
     dA_dt = p['ka'] * Ag - p['kel'] * A
     return [dAg_dt, dA_dt]
 
-
 def one_compartment_infusion_ode(y, t, p):
     A = y[0]
     k0 = p['dose'] / p['infusion_time'] if t <= p['infusion_time'] else 0
-    dA_dt = k0 - p['kel'] * A
-    return [dA_dt]
-
+    return [k0 - p['kel'] * A]
 
 def two_compartment_iv_ode(y, t, p):
     A1, A2 = y
-    dA1dt = -p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
-    dA2dt = p['k12'] * A1 - p['k21'] * A2
-    return [dA1dt, dA2dt]
-
+    dA1 = -p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
+    dA2 = p['k12'] * A1 - p['k21'] * A2
+    return [dA1, dA2]
 
 def two_compartment_po_ode(y, t, p):
     Ag, A1, A2 = y
-    dAgdt = -p['ka'] * Ag
-    dA1dt = p['ka'] * Ag - p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
-    dA2dt = p['k12'] * A1 - p['k21'] * A2
-    return [dAgdt, dA1dt, dA2dt]
-
+    dAg = -p['ka'] * Ag
+    dA1 = p['ka'] * Ag - p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
+    dA2 = p['k12'] * A1 - p['k21'] * A2
+    return [dAg, dA1, dA2]
 
 def two_compartment_infusion_ode(y, t, p):
     A1, A2 = y
     k0 = p['dose'] / p['infusion_time'] if t <= p['infusion_time'] else 0
-    dA1dt = k0 - p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
-    dA2dt = p['k12'] * A1 - p['k21'] * A2
-    return [dA1dt, dA2dt]
+    dA1 = k0 - p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
+    dA2 = p['k12'] * A1 - p['k21'] * A2
+    return [dA1, dA2]
 
 # ====== Streamlit UI ======
-
 st.set_page_config(page_title="EDU-PK Simulator", page_icon="💊")
 st.title("EDU-PK Simulator")
 
@@ -109,24 +101,22 @@ model_type = st.selectbox(
 )
 
 repeat = "Multiple Dosing" in model_type
-infusion = "Infusion" in model_type
 po = "PO" in model_type
-iv = "IV" in model_type and not po and not infusion
-
+infusion = "Infusion" in model_type
 
 dose = st.number_input("Dose per administration (mg)", value=500.0)
 tau = st.number_input("Dosing interval τ (hr)", value=8.0) if repeat else None
 n_doses = st.number_input("Number of doses", value=10, step=1) if repeat else 1
 
-# Add parameter inputs
+# Parameters
 if model_type.startswith("1-Compartment IV"):
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
-    kel = st.number_input("Elimination rate.constant (kel, 1/hr)", value=0.2)
+    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
     params = {'dose': dose, 'kel': kel}
 elif model_type.startswith("1-Compartment PO"):
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
-    ka = st.number_input("Absorption rate.constant (ka, 1/hr)", value=1.0)
-    kel = st.number_input("Elimination rate.constant (kel, 1/hr)", value=0.2)
+    ka = st.number_input("Absorption rate constant (ka, 1/hr)", value=1.0)
+    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
     params = {'dose': dose, 'ka': ka, 'kel': kel}
 elif model_type.startswith("2-Compartment IV"):
     V1 = st.number_input("Central volume (V1, L)", value=15.0)
@@ -136,14 +126,14 @@ elif model_type.startswith("2-Compartment IV"):
     params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21}
 elif model_type.startswith("2-Compartment PO"):
     V1 = st.number_input("Central volume (V1, L)", value=15.0)
-    ka = st.number_input("Absorption rate.constant (ka, 1/hr)", value=1.2)
+    ka = st.number_input("Absorption rate constant (ka, 1/hr)", value=1.2)
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
     k21 = st.number_input("k21 (1/hr)", value=0.05)
     params = {'dose': dose, 'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21}
 elif model_type == "1-Compartment Infusion":
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
-    kel = st.number_input("Elimination rate.constant (kel, 1/hr)", value=0.2)
+    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
     infusion_time = st.number_input("Infusion duration (hr)", value=2.0)
     params = {'dose': dose, 'kel': kel, 'infusion_time': infusion_time}
 elif model_type == "2-Compartment Infusion":
@@ -154,38 +144,40 @@ elif model_type == "2-Compartment Infusion":
     infusion_time = st.number_input("Infusion duration (hr)", value=2.0)
     params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21, 'infusion_time': infusion_time}
 
-# Set duration
-# 반복 시 마지막 투여 시점까지
-duration = tau * n_doses if repeat else 24
+# Durations: extend one interval beyond last dose for elimination
+if repeat:
+    metrics_end = tau * n_doses
+    extension = tau
+    duration = metrics_end + extension
+else:
+    duration = 24
 
-# Generate time vector
+# Time vector and simulation
 time = create_time_vector(duration)
-
-# Compute concentration based on selected model
 if model_type.startswith("1-Compartment IV"):
     y0 = [dose]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params, repeat)
-    conc = result[:, 0] / Vd
+    conc = result[:,0] / Vd
 elif model_type.startswith("1-Compartment PO"):
-    y0 = [dose, 0]
+    y0 = [dose,0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_po_ode, y0, params, repeat)
-    conc = result[:, 1] / Vd
+    conc = result[:,1] / Vd
 elif model_type == "1-Compartment Infusion":
     y0 = [0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_infusion_ode, y0, params, repeat)
-    conc = result[:, 0] / Vd
+    conc = result[:,0] / Vd
 elif model_type.startswith("2-Compartment IV"):
-    y0 = [dose, 0]
+    y0 = [dose,0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_iv_ode, y0, params, repeat)
-    conc = result[:, 0] / V1
+    conc = result[:,0] / V1
 elif model_type.startswith("2-Compartment PO"):
-    y0 = [dose, 0, 0]
+    y0 = [dose,0,0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_po_ode, y0, params, repeat)
-    conc = result[:, 1] / V1
+    conc = result[:,1] / V1
 elif model_type == "2-Compartment Infusion":
-    y0 = [0, 0]
+    y0 = [0,0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_infusion_ode, y0, params, repeat)
-    conc = result[:, 0] / V1
+    conc = result[:,0] / V1
 
 # Plot and metrics
 if st.button("Plot Graph"):
@@ -197,20 +189,19 @@ if st.button("Plot Graph"):
     ax.legend()
     st.pyplot(fig)
 
-    # AUC 계산
     AUC = simpson(conc, time)
 
     if repeat:
-        # 마지막 두 τ 구간에서 steady-state 지표 계산
-        last_start = int(len(time) - (2 * tau / (time[1] - time[0])))
-        recent_conc = conc[last_start:]
-        delta_c = np.abs(np.max(recent_conc) - np.min(recent_conc))
-        ss_reached = delta_c / np.max(conc) < 0.05
+        # steady-state metrics over last two τ intervals before elimination period
+        start_metrics = metrics_end - 2*tau
+        mask = (time >= start_metrics) & (time <= metrics_end)
+        times_m = time[mask]
+        conc_m = conc[mask]
+        Css_max = np.max(conc_m)
+        Css_min = np.min(conc_m)
+        Css_avg = simpson(conc_m, times_m) / (2*tau)
+        ss_reached = (Css_max - Css_min) / Css_max < 0.05
         ss_text = '🟢 Steady-state reached' if ss_reached else '🔴 Not at steady-state'
-
-        Css_max = np.max(recent_conc)
-        Css_min = np.min(recent_conc)
-        Css_avg = simpson(recent_conc, time[last_start:]) / (time[-1] - time[last_start])
 
         st.markdown(f"**Steady-state average concentration (Cavg):** {Css_avg:.4f} mg/L")
         st.markdown(f"**Steady-state maximum concentration (Cmax):** {Css_max:.4f} mg/L")
