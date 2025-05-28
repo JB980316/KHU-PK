@@ -15,7 +15,7 @@ import streamlit as st
 from scipy.integrate import odeint, simpson
 
 # ====== 공통 함수 ======
-def create_time_vector(duration=1000, dt=0.1):
+def create_time_vector(duration, dt=0.1):
     return np.arange(0, duration + dt, dt)
 
 def repeat_dosing_ode(time, tau, n_doses, ode_func, y0, params):
@@ -78,7 +78,7 @@ def two_compartment_infusion_ode(y, t, p):
 
 # ====== Streamlit UI ======
 st.set_page_config(page_title="PK Simulator", page_icon="💊")
-st.title("약물동태학 모델 시뮬레이터 (ODE 기반 + 반복투여 지원)")
+st.title("EDU-PK")
 
 model_type = st.selectbox("모델을 선택하세요", [
     "1-Compartment IV",
@@ -92,9 +92,7 @@ model_type = st.selectbox("모델을 선택하세요", [
 dose = st.number_input("1회 용량 (mg)", value=500.0)
 tau = st.number_input("투여 간격 τ (hr)", value=8.0)
 n_doses = st.number_input("투여 횟수", value=10, step=1)
-duration = tau * n_doses
-if duration < 1000:
-    duration = 1000
+duration = tau * n_doses * 1.5  # 관찰 시간: 총 투여 기간보다 약간 더 길게
 
 time = create_time_vector(duration)
 
