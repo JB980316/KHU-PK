@@ -15,7 +15,7 @@ import streamlit as st
 from scipy.integrate import odeint, simpson
 
 # ====== 공통 함수 ======
-def create_time_vector(duration=24, dt=0.1):
+def create_time_vector(duration=10000, dt=0.1):
     return np.arange(0, duration + dt, dt)
 
 def repeat_dosing_ode(time, tau, n_doses, ode_func, y0, params):
@@ -78,7 +78,7 @@ def two_compartment_infusion_ode(y, t, p):
 
 # ====== Streamlit UI ======
 st.set_page_config(page_title="PK Simulator", page_icon="💊")
-st.title("약물동태학 모델 시뮬레이터 (ODE 기반 + 반복투여 지원)")
+st.title("EDU-PK)")
 
 model_type = st.selectbox("모델을 선택하세요", [
     "1-Compartment IV",
@@ -93,6 +93,9 @@ dose = st.number_input("1회 용량 (mg)", value=500.0)
 tau = st.number_input("투여 간격 τ (hr)", value=8.0)
 n_doses = st.number_input("투여 횟수", value=10, step=1)
 duration = tau * n_doses
+if duration < 10000:
+    duration = 10000
+
 time = create_time_vector(duration)
 
 params = {'dose': dose}
@@ -169,7 +172,8 @@ if st.button("그래프 그리기"):
     # Steady-state 판별 (마지막 2회 투여 주기 비교)
     last_start = int(len(time) - (2 * tau / (time[1] - time[0])))
     recent_conc = conc[last_start:]
-    ss_reached = np.max(recent_conc) == np.min(recent_conc)
+    delta_c = np.abs(np.max(recent_conc) - np.min(recent_conc))
+    ss_reached = delta_c / Cmax < 0.05
 
     st.markdown(f"**Cmax:** {Cmax:.2f} mg/L")
     st.markdown(f"**Tmax:** {Tmax:.2f} hr")
