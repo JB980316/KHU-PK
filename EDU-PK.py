@@ -145,8 +145,31 @@ duration = tau * n_doses * 2 if repeat else 24
 # Generate time vector
 time = create_time_vector(duration)
 
-# Placeholder for concentration
-conc = np.zeros_like(time)
+# Compute concentration based on selected model
+if model_type == "1-Compartment IV" or model_type == "1-Compartment IV (Multiple Dosing)":
+    y0 = [0] if repeat else [dose]
+    result = simulate_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params, repeat)
+    conc = result[:, 0] / Vd
+elif model_type == "1-Compartment PO" or model_type == "1-Compartment PO (Multiple Dosing)":
+    y0 = [dose, 0] if not repeat else [0, 0]
+    result = simulate_ode(time, tau, int(n_doses), one_compartment_po_ode, y0, params, repeat)
+    conc = result[:, 1] / Vd
+elif model_type == "1-Compartment Infusion":
+    y0 = [0]
+    result = simulate_ode(time, tau, int(n_doses), one_compartment_infusion_ode, y0, params, repeat)
+    conc = result[:, 0] / Vd
+elif model_type == "2-Compartment IV" or model_type == "2-Compartment IV (Multiple Dosing)":
+    y0 = [0, 0] if repeat else [dose, 0]
+    result = simulate_ode(time, tau, int(n_doses), two_compartment_iv_ode, y0, params, repeat)
+    conc = result[:, 0] / V1
+elif model_type == "2-Compartment PO" or model_type == "2-Compartment PO (Multiple Dosing)":
+    y0 = [dose, 0, 0] if not repeat else [0, 0, 0]
+    result = simulate_ode(time, tau, int(n_doses), two_compartment_po_ode, y0, params, repeat)
+    conc = result[:, 1] / V1
+elif model_type == "2-Compartment Infusion":
+    y0 = [0, 0]
+    result = simulate_ode(time, tau, int(n_doses), two_compartment_infusion_ode, y0, params, repeat)
+    conc = result[:, 0] / V1
 
 # Restore steady-state result section
 if st.button("Plot Graph"):
