@@ -7,7 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/1ZQfW040HahTsU-NkHMkxnehEWX4e95Zg
 """
 
-# 약물동태학 모델 어플리케이션 (Streamlit 기반 - 반복 투여 포함, 미분방정식 기반)
+# 약물동태학 모델 어플리케이션 (Streamlit 기반 - 단일 및 반복 투여 모델 분리)
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,23 +18,24 @@ from scipy.integrate import odeint, simpson
 def create_time_vector(duration, dt=0.1):
     return np.arange(0, duration + dt, dt)
 
-def repeat_dosing_ode(time, tau, n_doses, ode_func, y0, params):
+def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
     full_result = np.zeros((len(time), len(y0)))
     y = y0.copy()
-    current_time = 0
 
-    for i in range(n_doses):
-        t_start = i * tau
-        t_end = (i + 1) * tau
-        mask = (time >= t_start) & (time < t_end)
-        t_segment = time[mask] - t_start
-
-        if i > 0:
-            y[0] += params['dose']  # 반복 투여 시 중심구획 또는 위장구획에 추가
-
-        result = odeint(ode_func, y, t_segment, args=(params,))
-        full_result[mask] = result
-        y = result[-1]
+    if repeat:
+        for i in range(n_doses):
+            t_start = i * tau
+            t_end = time[-1] if i == n_doses - 1 else (i + 1) * tau
+            mask = (time >= t_start) & (time < t_end)
+            t_segment = time[mask] - t_start
+            if i > 0:
+                y[0] += params['dose']
+            result = odeint(ode_func, y, t_segment, args=(params,))
+            full_result[mask] = result
+            y = result[-1]
+    else:
+        result = odeint(ode_func, y0, time, args=(params,))
+        full_result = result
 
     return full_result
 
@@ -82,100 +83,118 @@ st.title("EDU-PK")
 
 model_type = st.selectbox("모델을 선택하세요", [
     "1-Compartment IV",
+    "1-Compartment IV (Multiple Dosing)",
     "1-Compartment PO",
+    "1-Compartment PO (Multiple Dosing)",
     "1-Compartment Infusion",
     "2-Compartment IV",
+    "2-Compartment IV (Multiple Dosing)",
     "2-Compartment PO",
+    "2-Compartment PO (Multiple Dosing)",
     "2-Compartment Infusion"
 ])
 
-dose = st.number_input("1회 용량 (mg)", value=500.0)
-tau = st.number_input("투여 간격 τ (hr)", value=8.0)
-n_doses = st.number_input("투여 횟수", value=10, step=1)
-duration = tau * n_doses * 1.5  # 관찰 시간: 총 투여 기간보다 약간 더 길게
+repeat = "Multiple Dosing" in model_type
+infusion = "Infusion" in model_type
+po = "PO" in model_type
+iv = "IV" in model_type and not po and not infusion
 
-time = create_time_vector(duration)
+dose = st.number_input("1회 용량 (mg)", value=500.0)
+tau = st.number_input("투여 간격 τ (hr)", value=8.0) if repeat else None
+n_doses = st.number_input("투여 횟수", value=10, step=1) if repeat else 1
+duration = tau * n_doses * 2 if repeat else 24
 
 params = {'dose': dose}
+time = create_time_vector(duration)
 
-if model_type == "1-Compartment IV":
+if model_type.startswith("1-Compartment IV"):
     Vd = st.number_input("Vd (L)", value=20.0)
     kel = st.number_input("kel (1/hr)", value=0.2)
     params.update({'kel': kel})
-    y0 = [dose]
-    result = repeat_dosing_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params)
+    y0 = [0 if repeat else dose]
+    result = simulate_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params, repeat)
     conc = result[:, 0] / Vd
 
-elif model_type == "1-Compartment PO":
+elif model_type.startswith("1-Compartment PO"):
     Vd = st.number_input("Vd (L)", value=20.0)
     ka = st.number_input("ka (1/hr)", value=1.0)
     kel = st.number_input("kel (1/hr)", value=0.2)
     params.update({'ka': ka, 'kel': kel})
-    y0 = [dose, 0]
-    result = repeat_dosing_ode(time, tau, int(n_doses), one_compartment_po_ode, y0, params)
+    y0 = [0, 0] if repeat else [dose, 0]
+    result = simulate_ode(time, tau, int(n_doses), one_compartment_po_ode, y0, params, repeat)
     conc = result[:, 1] / Vd
 
-elif model_type == "1-Compartment Infusion":
-    Vd = st.number_input("Vd (L)", value=20.0)
-    kel = st.number_input("kel (1/hr)", value=0.2)
-    infusion_time = st.number_input("주입 시간 (hr)", value=2.0)
-    params.update({'kel': kel, 'infusion_time': infusion_time})
-    y0 = [0]
-    result = repeat_dosing_ode(time, tau, int(n_doses), one_compartment_infusion_ode, y0, params)
-    conc = result[:, 0] / Vd
-
-elif model_type == "2-Compartment IV":
+elif model_type.startswith("2-Compartment IV"):
     V1 = st.number_input("V1 (L)", value=15.0)
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
     k21 = st.number_input("k21 (1/hr)", value=0.05)
     params.update({'k10': k10, 'k12': k12, 'k21': k21})
-    y0 = [dose, 0]
-    result = repeat_dosing_ode(time, tau, int(n_doses), two_compartment_iv_ode, y0, params)
+    y0 = [0, 0] if repeat else [dose, 0]
+    result = simulate_ode(time, tau, int(n_doses), two_compartment_iv_ode, y0, params, repeat)
     conc = result[:, 0] / V1
 
-elif model_type == "2-Compartment PO":
+elif model_type.startswith("2-Compartment PO"):
     V1 = st.number_input("V1 (L)", value=15.0)
     ka = st.number_input("ka (1/hr)", value=1.2)
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
     k21 = st.number_input("k21 (1/hr)", value=0.05)
     params.update({'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21})
-    y0 = [dose, 0, 0]
-    result = repeat_dosing_ode(time, tau, int(n_doses), two_compartment_po_ode, y0, params)
+    y0 = [0, 0, 0] if repeat else [dose, 0, 0]
+    result = simulate_ode(time, tau, int(n_doses), two_compartment_po_ode, y0, params, repeat)
     conc = result[:, 1] / V1
 
-elif model_type == "2-Compartment Infusion":
-    V1 = st.number_input("V1 (L)", value=15.0)
-    k10 = st.number_input("k10 (1/hr)", value=0.15)
-    k12 = st.number_input("k12 (1/hr)", value=0.1)
-    k21 = st.number_input("k21 (1/hr)", value=0.05)
-    infusion_time = st.number_input("주입 시간 (hr)", value=2.0)
-    params.update({'k10': k10, 'k12': k12, 'k21': k21, 'infusion_time': infusion_time})
-    y0 = [0, 0]
-    result = repeat_dosing_ode(time, tau, int(n_doses), two_compartment_infusion_ode, y0, params)
-    conc = result[:, 0] / V1
+elif infusion:
+    if model_type.startswith("1-Compartment"):
+        Vd = st.number_input("Vd (L)", value=20.0)
+        kel = st.number_input("kel (1/hr)", value=0.2)
+        infusion_time = st.number_input("주입 시간 (hr)", value=2.0)
+        params.update({'kel': kel, 'infusion_time': infusion_time})
+        y0 = [0]
+        result = simulate_ode(time, tau, 1, one_compartment_infusion_ode, y0, params)
+        conc = result[:, 0] / Vd
+    else:
+        V1 = st.number_input("V1 (L)", value=15.0)
+        k10 = st.number_input("k10 (1/hr)", value=0.15)
+        k12 = st.number_input("k12 (1/hr)", value=0.1)
+        k21 = st.number_input("k21 (1/hr)", value=0.05)
+        infusion_time = st.number_input("주입 시간 (hr)", value=2.0)
+        params.update({'k10': k10, 'k12': k12, 'k21': k21, 'infusion_time': infusion_time})
+        y0 = [0, 0]
+        result = simulate_ode(time, tau, 1, two_compartment_infusion_ode, y0, params)
+        conc = result[:, 0] / V1
 
-# ====== 시각화 및 파라미터 출력 ======
+# ====== 결과 출력 ======
 if st.button("그래프 그리기"):
-    st.line_chart(data=conc, use_container_width=True)
-
-    # 파라미터 계산
-    Cmax = np.max(conc)
-    Tmax = time[np.argmax(conc)]
-    Cmin = np.min(conc)
+    st.line_chart(data=dict(zip(time, conc)))
     AUC = simpson(conc, time)
-    Cavg = AUC / duration
+    Cavg = AUC / (time[-1] - time[0])
 
-    # Steady-state 판별 (마지막 2회 투여 주기 비교)
-    last_start = int(len(time) - (2 * tau / (time[1] - time[0])))
-    recent_conc = conc[last_start:]
-    delta_c = np.abs(np.max(recent_conc) - np.min(recent_conc))
-    ss_reached = delta_c / Cmax < 0.05
+    if repeat:
+        last_start = int(len(time) - (2 * tau / (time[1] - time[0])))
+        recent_conc = conc[last_start:]
+        delta_c = np.abs(np.max(recent_conc) - np.min(recent_conc))
+        ss_reached = delta_c / np.max(conc) < 0.05
+        ss_text = '✅ 도달' if ss_reached else '❌ 미도달'
 
-    st.markdown(f"**Cmax:** {Cmax:.2f} mg/L")
-    st.markdown(f"**Tmax:** {Tmax:.2f} hr")
-    st.markdown(f"**Cmin:** {Cmin:.2f} mg/L")
-    st.markdown(f"**AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
-    st.markdown(f"**Cavg:** {Cavg:.2f} mg/L")
-    st.markdown(f"**정상상태 도달 여부:** {'✅ 도달' if ss_reached else '❌ 미도달'}")
+        Css_max = np.max(recent_conc)
+        Css_min = np.min(recent_conc)
+        Css_avg = simpson(recent_conc, time[last_start:]) / (time[-1] - time[last_start])
+
+        st.markdown(f"**정상상태 평균 농도 (Cavg):** {Css_avg:.2f} mg/L")
+        st.markdown(f"**정상상태 최고 농도 (Cmax):** {Css_max:.2f} mg/L")
+        st.markdown(f"**정상상태 최저 농도 (Cmin):** {Css_min:.2f} mg/L")
+        st.markdown(f"**전체 AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
+        st.markdown(f"**정상상태 도달 여부:** {ss_text}")
+
+    else:
+        Cmax = np.max(conc)
+        Tmax = time[np.argmax(conc)]
+        Cmin = np.min(conc)
+        st.markdown(f"**Cmax:** {Cmax:.2f} mg/L")
+        st.markdown(f"**Tmax:** {Tmax:.2f} hr")
+        st.markdown(f"**Cmin:** {Cmin:.2f} mg/L")
+        st.markdown(f"**AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
+        st.markdown(f"**Cavg:** {Cavg:.2f} mg/L")
+        st.markdown(f"**정상상태 도달 여부:** —")
