@@ -142,3 +142,4 @@ if st.button("Plot Graph"):
         st.markdown(f"**AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
         st.markdown(f"**Cavg:** {Cavg:.2f} mg/L")
         st.markdown(f"**Steady-state status:** —")
+
