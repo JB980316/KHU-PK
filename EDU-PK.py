@@ -78,7 +78,7 @@ def two_compartment_infusion_ode(y, t, p):
 
 # ====== Streamlit UI ======
 st.set_page_config(page_title="PK Simulator", page_icon="💊")
-st.title("EDU-PK)")
+st.title("EDU-PK")
 
 model_type = st.selectbox("모델을 선택하세요", [
     "1-Compartment IV",
