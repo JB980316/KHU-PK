@@ -12,7 +12,7 @@ Original file is located at
 import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
-from scipy.integrate import odeint, simps
+from scipy.integrate import odeint, simpson
 
 # ====== 공통 함수 ======
 def create_time_vector(duration=24, dt=0.1):
@@ -163,7 +163,7 @@ if st.button("그래프 그리기"):
     Cmax = np.max(conc)
     Tmax = time[np.argmax(conc)]
     Cmin = np.min(conc)
-    AUC = simps(conc, time)
+    AUC = simpson(conc, time)
     Cavg = AUC / duration
 
     # Steady-state 판별 (마지막 2회 투여 주기 비교)
