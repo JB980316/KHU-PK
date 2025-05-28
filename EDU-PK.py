@@ -26,7 +26,7 @@ def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
         for i in range(n_doses):
             t_start = i * tau
             t_end = time[-1] if i == n_doses - 1 else (i + 1) * tau
-            # Include final point in last interval
+            # Include final time point in last interval
             if i == n_doses - 1:
                 mask = (time >= t_start) & (time <= t_end)
             else:
@@ -108,7 +108,7 @@ dose = st.number_input("Dose per administration (mg)", value=500.0)
 tau = st.number_input("Dosing interval τ (hr)", value=8.0) if repeat else None
 n_doses = st.number_input("Number of doses", value=10, step=1) if repeat else 1
 
-# Parameters
+# Parameter inputs
 if model_type.startswith("1-Compartment IV"):
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
     kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
@@ -144,16 +144,16 @@ elif model_type == "2-Compartment Infusion":
     infusion_time = st.number_input("Infusion duration (hr)", value=2.0)
     params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21, 'infusion_time': infusion_time}
 
-# Durations: extend one interval beyond last dose for elimination
-if repeat:
+# Simulation durations\if repeat:
     metrics_end = tau * n_doses
-    extension = tau
+    extension = tau  # one extra interval for elimination
     duration = metrics_end + extension
 else:
     duration = 24
 
-# Time vector and simulation
+# Run simulation
 time = create_time_vector(duration)
+
 if model_type.startswith("1-Compartment IV"):
     y0 = [dose]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params, repeat)
@@ -179,7 +179,7 @@ elif model_type == "2-Compartment Infusion":
     result = simulate_ode(time, tau, int(n_doses), two_compartment_infusion_ode, y0, params, repeat)
     conc = result[:,0] / V1
 
-# Plot and metrics
+# Plot results and compute metrics
 if st.button("Plot Graph"):
     fig, ax = plt.subplots()
     ax.plot(time, conc, label='Plasma Concentration')
@@ -189,19 +189,28 @@ if st.button("Plot Graph"):
     ax.legend()
     st.pyplot(fig)
 
-    AUC = simpson(conc, time)
+    # Overall AUC\    AUC = simpson(conc, time)
 
     if repeat:
-        # steady-state metrics over last two τ intervals before elimination period
-        start_metrics = metrics_end - 2*tau
-        mask = (time >= start_metrics) & (time <= metrics_end)
-        times_m = time[mask]
-        conc_m = conc[mask]
-        Css_max = np.max(conc_m)
-        Css_min = np.min(conc_m)
-        Css_avg = simpson(conc_m, times_m) / (2*tau)
-        ss_reached = (Css_max - Css_min) / Css_max < 0.05
+        # Calculate steady-state based on consecutive dosing cycles
+        dt = time[1] - time[0]
+        # Indices for previous and last dosing intervals
+        idx_prev = np.where((time >= metrics_end - 2*tau) & (time < metrics_end - tau))[0]
+        idx_last = np.where((time >= metrics_end - tau) & (time < metrics_end))[0]
+        conc_prev = conc[idx_prev]
+        conc_last = conc[idx_last]
+        Cmax_prev = np.max(conc_prev)
+        Cmax_last = np.max(conc_last)
+        Cmin_prev = np.min(conc_prev)
+        Cmin_last = np.min(conc_last)
+        # Steady-state if both peak and trough differences <5%
+        ss_reached = (abs(Cmax_last - Cmax_prev) / Cmax_last < 0.05) and \
+                     (abs(Cmin_last - Cmin_prev) / Cmin_last < 0.05)
         ss_text = '🟢 Steady-state reached' if ss_reached else '🔴 Not at steady-state'
+        # Metrics from last interval
+        Css_max = Cmax_last
+        Css_min = Cmin_last
+        Css_avg = simpson(conc_last, time[idx_last]) / tau
 
         st.markdown(f"**Steady-state average concentration (Cavg):** {Css_avg:.4f} mg/L")
         st.markdown(f"**Steady-state maximum concentration (Cmax):** {Css_max:.4f} mg/L")
