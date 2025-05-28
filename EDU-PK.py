@@ -102,16 +102,55 @@ iv = "IV" in model_type and not po and not infusion
 dose = st.number_input("Dose per administration (mg)", value=500.0)
 tau = st.number_input("Dosing interval τ (hr)", value=8.0) if repeat else None
 n_doses = st.number_input("Number of doses", value=10, step=1) if repeat else 1
+
+# Add parameter inputs
+if model_type.startswith("1-Compartment IV"):
+    Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
+    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
+    params = {'dose': dose, 'kel': kel}
+elif model_type.startswith("1-Compartment PO"):
+    Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
+    ka = st.number_input("Absorption rate constant (ka, 1/hr)", value=1.0)
+    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
+    params = {'dose': dose, 'ka': ka, 'kel': kel}
+elif model_type.startswith("2-Compartment IV"):
+    V1 = st.number_input("Central volume (V1, L)", value=15.0)
+    k10 = st.number_input("k10 (1/hr)", value=0.15)
+    k12 = st.number_input("k12 (1/hr)", value=0.1)
+    k21 = st.number_input("k21 (1/hr)", value=0.05)
+    params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21}
+elif model_type.startswith("2-Compartment PO"):
+    V1 = st.number_input("Central volume (V1, L)", value=15.0)
+    ka = st.number_input("Absorption rate constant (ka, 1/hr)", value=1.2)
+    k10 = st.number_input("k10 (1/hr)", value=0.15)
+    k12 = st.number_input("k12 (1/hr)", value=0.1)
+    k21 = st.number_input("k21 (1/hr)", value=0.05)
+    params = {'dose': dose, 'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21}
+elif model_type == "1-Compartment Infusion":
+    Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
+    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
+    infusion_time = st.number_input("Infusion duration (hr)", value=2.0)
+    params = {'dose': dose, 'kel': kel, 'infusion_time': infusion_time}
+elif model_type == "2-Compartment Infusion":
+    V1 = st.number_input("Central volume (V1, L)", value=15.0)
+    k10 = st.number_input("k10 (1/hr)", value=0.15)
+    k12 = st.number_input("k12 (1/hr)", value=0.1)
+    k21 = st.number_input("k21 (1/hr)", value=0.05)
+    infusion_time = st.number_input("Infusion duration (hr)", value=2.0)
+    params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21, 'infusion_time': infusion_time}
+
+# Set duration
 duration = tau * n_doses * 2 if repeat else 24
 
-params = {'dose': dose}
+# Generate time vector
 time = create_time_vector(duration)
 
-# (Model execution code remains unchanged)
+# Placeholder for concentration
+conc = np.zeros_like(time)
 
-# ====== Results ======
+# Restore steady-state result section
 if st.button("Plot Graph"):
-    st.line_chart(data=dict(zip(time, conc)))
+    # This section assumes conc is computed prior to plotting
     AUC = simpson(conc, time)
     Cavg = AUC / (time[-1] - time[0])
 
@@ -131,7 +170,6 @@ if st.button("Plot Graph"):
         st.markdown(f"**Steady-state minimum concentration (Cmin):** {Css_min:.2f} mg/L")
         st.markdown(f"**Total AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
         st.markdown(f"**Steady-state status:** {ss_text}")
-
     else:
         Cmax = np.max(conc)
         Tmax = time[np.argmax(conc)]
@@ -141,5 +179,4 @@ if st.button("Plot Graph"):
         st.markdown(f"**Cmin:** {Cmin:.2f} mg/L")
         st.markdown(f"**AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
         st.markdown(f"**Cavg:** {Cavg:.2f} mg/L")
-        st.markdown(f"**Steady-state status:** —")
 
