@@ -26,7 +26,11 @@ def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
         for i in range(n_doses):
             t_start = i * tau
             t_end = time[-1] if i == n_doses - 1 else (i + 1) * tau
-            mask = (time >= t_start) & (time < t_end)
+            # Include final time point in last interval to avoid drop-off
+            if i == n_doses - 1:
+                mask = (time >= t_start) & (time <= t_end)
+            else:
+                mask = (time >= t_start) & (time < t_end)
             t_segment = time[mask] - t_start
             if i > 0:
                 y[0] += params['dose']
@@ -117,12 +121,12 @@ n_doses = st.number_input("Number of doses", value=10, step=1) if repeat else 1
 # Add parameter inputs
 if model_type.startswith("1-Compartment IV"):
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
-    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
+    kel = st.number_input("Elimination rate.constant (kel, 1/hr)", value=0.2)
     params = {'dose': dose, 'kel': kel}
 elif model_type.startswith("1-Compartment PO"):
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
-    ka = st.number_input("Absorption rate constant (ka, 1/hr)", value=1.0)
-    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
+    ka = st.number_input("Absorption rate.constant (ka, 1/hr)", value=1.0)
+    kel = st.number_input("Elimination rate.constant (kel, 1/hr)", value=0.2)
     params = {'dose': dose, 'ka': ka, 'kel': kel}
 elif model_type.startswith("2-Compartment IV"):
     V1 = st.number_input("Central volume (V1, L)", value=15.0)
@@ -132,14 +136,14 @@ elif model_type.startswith("2-Compartment IV"):
     params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21}
 elif model_type.startswith("2-Compartment PO"):
     V1 = st.number_input("Central volume (V1, L)", value=15.0)
-    ka = st.number_input("Absorption rate constant (ka, 1/hr)", value=1.2)
+    ka = st.number_input("Absorption rate.constant (ka, 1/hr)", value=1.2)
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
     k21 = st.number_input("k21 (1/hr)", value=0.05)
     params = {'dose': dose, 'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21}
 elif model_type == "1-Compartment Infusion":
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
-    kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
+    kel = st.number_input("Elimination rate.constant (kel, 1/hr)", value=0.2)
     infusion_time = st.number_input("Infusion duration (hr)", value=2.0)
     params = {'dose': dose, 'kel': kel, 'infusion_time': infusion_time}
 elif model_type == "2-Compartment Infusion":
