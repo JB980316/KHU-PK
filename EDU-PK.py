@@ -26,7 +26,7 @@ def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
         for i in range(n_doses):
             t_start = i * tau
             t_end = time[-1] if i == n_doses - 1 else (i + 1) * tau
-            # Include final time point in last interval
+            # Include final point in the last dosing interval
             if i == n_doses - 1:
                 mask = (time >= t_start) & (time <= t_end)
             else:
@@ -49,16 +49,19 @@ def one_compartment_iv_ode(y, t, p):
     A = y[0]
     return [-p['kel'] * A]
 
+
 def one_compartment_po_ode(y, t, p):
     Ag, A = y
     dAg_dt = -p['ka'] * Ag
     dA_dt = p['ka'] * Ag - p['kel'] * A
     return [dAg_dt, dA_dt]
 
+
 def one_compartment_infusion_ode(y, t, p):
     A = y[0]
     k0 = p['dose'] / p['infusion_time'] if t <= p['infusion_time'] else 0
     return [k0 - p['kel'] * A]
+
 
 def two_compartment_iv_ode(y, t, p):
     A1, A2 = y
@@ -66,12 +69,14 @@ def two_compartment_iv_ode(y, t, p):
     dA2 = p['k12'] * A1 - p['k21'] * A2
     return [dA1, dA2]
 
+
 def two_compartment_po_ode(y, t, p):
     Ag, A1, A2 = y
     dAg = -p['ka'] * Ag
     dA1 = p['ka'] * Ag - p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
     dA2 = p['k12'] * A1 - p['k21'] * A2
     return [dAg, dA1, dA2]
+
 
 def two_compartment_infusion_ode(y, t, p):
     A1, A2 = y
@@ -144,7 +149,8 @@ elif model_type == "2-Compartment Infusion":
     infusion_time = st.number_input("Infusion duration (hr)", value=2.0)
     params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21, 'infusion_time': infusion_time}
 
-# Simulation durations\if repeat:
+# Simulation durations
+if repeat:
     metrics_end = tau * n_doses
     extension = tau  # one extra interval for elimination
     duration = metrics_end + extension
@@ -157,27 +163,27 @@ time = create_time_vector(duration)
 if model_type.startswith("1-Compartment IV"):
     y0 = [dose]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params, repeat)
-    conc = result[:,0] / Vd
+    conc = result[:, 0] / Vd
 elif model_type.startswith("1-Compartment PO"):
-    y0 = [dose,0]
+    y0 = [dose, 0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_po_ode, y0, params, repeat)
-    conc = result[:,1] / Vd
+    conc = result[:, 1] / Vd
 elif model_type == "1-Compartment Infusion":
     y0 = [0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_infusion_ode, y0, params, repeat)
-    conc = result[:,0] / Vd
+    conc = result[:, 0] / Vd
 elif model_type.startswith("2-Compartment IV"):
-    y0 = [dose,0]
+    y0 = [dose, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_iv_ode, y0, params, repeat)
-    conc = result[:,0] / V1
+    conc = result[:, 0] / V1
 elif model_type.startswith("2-Compartment PO"):
-    y0 = [dose,0,0]
+    y0 = [dose, 0, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_po_ode, y0, params, repeat)
-    conc = result[:,1] / V1
+    conc = result[:, 1] / V1
 elif model_type == "2-Compartment Infusion":
-    y0 = [0,0]
+    y0 = [0, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_infusion_ode, y0, params, repeat)
-    conc = result[:,0] / V1
+    conc = result[:, 0] / V1
 
 # Plot results and compute metrics
 if st.button("Plot Graph"):
@@ -189,7 +195,8 @@ if st.button("Plot Graph"):
     ax.legend()
     st.pyplot(fig)
 
-    # Overall AUC\    AUC = simpson(conc, time)
+    # Overall AUC
+    AUC = simpson(conc, time)
 
     if repeat:
         # Calculate steady-state based on consecutive dosing cycles
