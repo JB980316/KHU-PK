@@ -203,10 +203,8 @@ if st.button("Plot Graph"):
     else:
         Cmax = np.max(conc)
         Tmax = time[np.argmax(conc)]
-        Cmin = np.min(conc)
         st.markdown(f"**Cmax:** {Cmax:.2f} mg/L")
         st.markdown(f"**Tmax:** {Tmax:.2f} hr")
-        st.markdown(f"**Cmin:** {Cmin:.2f} mg/L")
         st.markdown(f"**AUC (0–{duration:.1f} hr):** {AUC:.2f} mg·hr/L")
         st.markdown(f"**Cavg:** {Cavg:.2f} mg/L")
 
