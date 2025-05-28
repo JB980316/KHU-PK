@@ -150,6 +150,13 @@ conc = np.zeros_like(time)
 
 # Restore steady-state result section
 if st.button("Plot Graph"):
+    fig, ax = plt.subplots()
+    ax.plot(time, conc, label='Plasma Concentration')
+    ax.set_xlabel('Time (hr)')
+    ax.set_ylabel('Concentration (mg/L)')
+    ax.set_title('Concentration-Time Profile')
+    ax.legend()
+    st.pyplot(fig)
     # This section assumes conc is computed prior to plotting
     AUC = simpson(conc, time)
     Cavg = AUC / (time[-1] - time[0])
