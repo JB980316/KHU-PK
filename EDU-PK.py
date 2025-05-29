@@ -188,7 +188,7 @@ elif model_type == "2-Compartment Infusion":
 # Plot results and compute metrics
 if st.button("Plot Graph"):
     fig, ax = plt.subplots()
-    ax.plot(time, conc, 'r-', label='Plasma Concentration', linewidth=2)
+    ax.plot(time, conc, label='Plasma Concentration')
     ax.set_xlabel('Time (hr)')
     ax.set_ylabel('Concentration (mg/L)')
     ax.set_title('Concentration-Time Profile')
