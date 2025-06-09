@@ -30,9 +30,12 @@ model = st.selectbox("모델을 선택하세요:", [
 t = np.linspace(0, 48, 500)
 
 # 공통 PD 모델
-st.sidebar.header("🧪 PD Parameters (Emax Model)")
-Emax = st.sidebar.number_input("Emax", value=1.0, step=0.1)
-EC50 = st.sidebar.number_input("EC50", value=2.0, step=0.1)
+st.header("\U0001F9EA PD Parameters (Emax Model)")
+col1, col2 = st.columns(2)
+with col1:
+    Emax = st.number_input("Emax", value=1.0, step=0.1)
+with col2:
+    EC50 = st.number_input("EC50", value=2.0, step=0.1)
 
 def compute_emax(C):
     return Emax * C / (EC50 + C)
@@ -50,7 +53,6 @@ def plot_concentration_and_effect(t, C, E):
     fig.tight_layout()
     st.pyplot(fig)
 
-# -------- Model 1: Emax Only --------
 if model == "Emax Model Only":
     C = np.linspace(0, 10, 200)
     E = compute_emax(C)
@@ -63,12 +65,14 @@ if model == "Emax Model Only":
     ax.legend()
     st.pyplot(fig)
 
-# -------- Model 2: 1C IV + Emax (ODE) --------
 elif model == "1C IV + Emax (ODE)":
-    st.sidebar.header("PK Parameters")
-    dose = st.sidebar.number_input("IV Dose (mg)", value=100.0)
-    ke = st.sidebar.number_input("ke (/hr)", value=0.1, step=0.01)
-    Vd = st.sidebar.number_input("Vd (L)", value=10.0)
+    st.header("PK Parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        dose = st.number_input("IV Dose (mg)", value=100.0)
+        ke = st.number_input("ke (/hr)", value=0.1, step=0.01)
+    with col2:
+        Vd = st.number_input("Vd (L)", value=10.0)
 
     def model_iv(y, t, ke):
         A = y[0]
@@ -81,13 +85,15 @@ elif model == "1C IV + Emax (ODE)":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-# -------- Model 3: 1C Infusion + Emax (ODE) --------
 elif model == "1C Infusion + Emax (ODE)":
-    st.sidebar.header("PK Parameters")
-    R = st.sidebar.number_input("Infusion Rate (mg/hr)", value=10.0)
-    duration = st.sidebar.number_input("Infusion Duration (hr)", value=2.0, step=0.1)
-    ke = st.sidebar.number_input("ke (/hr)", value=0.1, step=0.01)
-    Vd = st.sidebar.number_input("Vd (L)", value=10.0)
+    st.header("PK Parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        R = st.number_input("Infusion Rate (mg/hr)", value=10.0)
+        duration = st.number_input("Infusion Duration (hr)", value=2.0, step=0.1)
+    with col2:
+        ke = st.number_input("ke (/hr)", value=0.1, step=0.01)
+        Vd = st.number_input("Vd (L)", value=10.0)
 
     def model_infusion(y, t, R, ke, duration):
         A = y[0]
@@ -101,13 +107,15 @@ elif model == "1C Infusion + Emax (ODE)":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-# -------- Model 4: 1C PO + Emax --------
 elif model == "1C PO + Emax":
-    st.sidebar.header("PK Parameters")
-    dose = st.sidebar.number_input("Oral Dose (mg)", value=100.0)
-    ka = st.sidebar.number_input("ka (/hr)", value=1.0, step=0.1)
-    ke = st.sidebar.number_input("ke (/hr)", value=0.1, step=0.01)
-    Vd = st.sidebar.number_input("Vd (L)", value=10.0)
+    st.header("PK Parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        dose = st.number_input("Oral Dose (mg)", value=100.0)
+        ka = st.number_input("ka (/hr)", value=1.0, step=0.1)
+    with col2:
+        ke = st.number_input("ke (/hr)", value=0.1, step=0.01)
+        Vd = st.number_input("Vd (L)", value=10.0)
 
     def model_po(y, t, ka, ke, Vd):
         A, C = y
@@ -121,14 +129,16 @@ elif model == "1C PO + Emax":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-# -------- Model 5: 2C IV + Emax --------
 elif model == "2C IV + Emax":
-    st.sidebar.header("PK Parameters")
-    dose = st.sidebar.number_input("IV Dose (mg)", value=100.0)
-    k10 = st.sidebar.number_input("k10 (/hr)", value=0.1, step=0.01)
-    k12 = st.sidebar.number_input("k12 (/hr)", value=0.05, step=0.01)
-    k21 = st.sidebar.number_input("k21 (/hr)", value=0.05, step=0.01)
-    V1 = st.sidebar.number_input("Central Volume V1 (L)", value=10.0)
+    st.header("PK Parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        dose = st.number_input("IV Dose (mg)", value=100.0)
+        k10 = st.number_input("k10 (/hr)", value=0.1, step=0.01)
+        k12 = st.number_input("k12 (/hr)", value=0.05, step=0.01)
+    with col2:
+        k21 = st.number_input("k21 (/hr)", value=0.05, step=0.01)
+        V1 = st.number_input("Central Volume V1 (L)", value=10.0)
 
     def model_2c_iv(y, t, k10, k12, k21):
         A1, A2 = y
@@ -142,15 +152,17 @@ elif model == "2C IV + Emax":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-# -------- Model 6: 2C Infusion + Emax --------
 elif model == "2C Infusion + Emax":
-    st.sidebar.header("PK Parameters")
-    R = st.sidebar.number_input("Infusion Rate (mg/hr)", value=10.0)
-    duration = st.sidebar.number_input("Infusion Duration (hr)", value=2.0, step=0.1)
-    k10 = st.sidebar.number_input("k10 (/hr)", value=0.1, step=0.01)
-    k12 = st.sidebar.number_input("k12 (/hr)", value=0.05, step=0.01)
-    k21 = st.sidebar.number_input("k21 (/hr)", value=0.05, step=0.01)
-    V1 = st.sidebar.number_input("Central Volume V1 (L)", value=10.0)
+    st.header("PK Parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        R = st.number_input("Infusion Rate (mg/hr)", value=10.0)
+        duration = st.number_input("Infusion Duration (hr)", value=2.0, step=0.1)
+    with col2:
+        k10 = st.number_input("k10 (/hr)", value=0.1, step=0.01)
+        k12 = st.number_input("k12 (/hr)", value=0.05, step=0.01)
+        k21 = st.number_input("k21 (/hr)", value=0.05, step=0.01)
+        V1 = st.number_input("Central Volume V1 (L)", value=10.0)
 
     def model_2c_infusion(y, t, k10, k12, k21, R, duration):
         A1, A2 = y
@@ -165,15 +177,17 @@ elif model == "2C Infusion + Emax":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-# -------- Model 7: 2C PO + Emax --------
 elif model == "2C PO + Emax":
-    st.sidebar.header("PK Parameters")
-    dose = st.sidebar.number_input("Oral Dose (mg)", value=100.0)
-    ka = st.sidebar.number_input("ka (/hr)", value=1.0, step=0.1)
-    k10 = st.sidebar.number_input("k10 (/hr)", value=0.1, step=0.01)
-    k12 = st.sidebar.number_input("k12 (/hr)", value=0.05, step=0.01)
-    k21 = st.sidebar.number_input("k21 (/hr)", value=0.05, step=0.01)
-    V1 = st.sidebar.number_input("Central Volume V1 (L)", value=10.0)
+    st.header("PK Parameters")
+    col1, col2 = st.columns(2)
+    with col1:
+        dose = st.number_input("Oral Dose (mg)", value=100.0)
+        ka = st.number_input("ka (/hr)", value=1.0, step=0.1)
+        k10 = st.number_input("k10 (/hr)", value=0.1, step=0.01)
+    with col2:
+        k12 = st.number_input("k12 (/hr)", value=0.05, step=0.01)
+        k21 = st.number_input("k21 (/hr)", value=0.05, step=0.01)
+        V1 = st.number_input("Central Volume V1 (L)", value=10.0)
 
     def model_2c_po(y, t, ka, k10, k12, k21):
         Ag, A1, A2 = y
