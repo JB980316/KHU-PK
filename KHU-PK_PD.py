@@ -12,7 +12,7 @@ import numpy as np
 from scipy.integrate import odeint
 import matplotlib.pyplot as plt
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="centered")
 st.title("💊KHU-PK/PD simulator")
 
 # 모델 선택
