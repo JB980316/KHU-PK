@@ -17,13 +17,13 @@ st.title("💊KHU-PK/PD simulator")
 
 # 모델 선택
 model = st.selectbox("모델을 선택하세요:", [
-    "Emax Model Only",
-    "1C IV + Emax (ODE)",
-    "1C Infusion + Emax (ODE)",
-    "1C PO + Emax",
-    "2C IV + Emax",
-    "2C Infusion + Emax",
-    "2C PO + Emax"
+    "Emax Model",
+    "1 Compartment IV & Emax model",
+    "1 Compartment Infusion & Emax model",
+    "1 Compartment PO & Emax model",
+    "2 Compartment IV & Emax model",
+    "2 Compartment Infusion & Emax model",
+    "2 Compartment PO & Emax model"
 ])
 
 # 시간 정의
@@ -53,7 +53,7 @@ def plot_concentration_and_effect(t, C, E):
     fig.tight_layout()
     st.pyplot(fig)
 
-if model == "Emax Model Only":
+if model == "Emax Model":
     C = np.linspace(0, 10, 200)
     E = compute_emax(C)
     fig, ax = plt.subplots()
@@ -65,7 +65,7 @@ if model == "Emax Model Only":
     ax.legend()
     st.pyplot(fig)
 
-elif model == "1C IV + Emax (ODE)":
+elif model == "1 Compartment IV & Emax model":
     st.header("PK Parameters")
     col1, col2 = st.columns(2)
     with col1:
@@ -85,7 +85,7 @@ elif model == "1C IV + Emax (ODE)":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-elif model == "1C Infusion + Emax (ODE)":
+elif model == "1 Compartment Infusion & Emax model":
     st.header("PK Parameters")
     col1, col2 = st.columns(2)
     with col1:
@@ -107,7 +107,7 @@ elif model == "1C Infusion + Emax (ODE)":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-elif model == "1C PO + Emax":
+elif model == "1 Compartment PO & Emax model":
     st.header("PK Parameters")
     col1, col2 = st.columns(2)
     with col1:
@@ -129,7 +129,7 @@ elif model == "1C PO + Emax":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-elif model == "2C IV + Emax":
+elif model == "2 Compartment IV & Emax model":
     st.header("PK Parameters")
     col1, col2 = st.columns(2)
     with col1:
@@ -152,7 +152,7 @@ elif model == "2C IV + Emax":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-elif model == "2C Infusion + Emax":
+elif model == "2 Compartment Infusion & Emax model":
     st.header("PK Parameters")
     col1, col2 = st.columns(2)
     with col1:
@@ -177,7 +177,7 @@ elif model == "2C Infusion + Emax":
     E = compute_emax(C)
     plot_concentration_and_effect(t, C, E)
 
-elif model == "2C PO + Emax":
+elif model == "2 Compartment PO & Emax model":
     st.header("PK Parameters")
     col1, col2 = st.columns(2)
     with col1:
