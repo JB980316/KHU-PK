@@ -12,8 +12,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.integrate import odeint
 
-st.set_page_config(page_title="KHU-Transit Compartment Simulator", layout="centered")
-st.title("KHU-Transit Compartment Model Simulator")
+st.set_page_config(page_title="KHU-Transit Compartment Simulator", layout="centered", page_icon="💊")
+st.title("💊KHU-Transit Compartment Model Simulator")
 
 # -------------------------------
 # 📦 Transit Compartment Model

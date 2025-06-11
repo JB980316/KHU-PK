@@ -87,7 +87,7 @@ def two_compartment_infusion_ode(y, t, p):
 
 # ====== Streamlit UI ======
 st.set_page_config(page_title="KHU-PK Simulator", page_icon="💊")
-st.title("KHU-PK Simulator Prototype")
+st.title("💊KHU-PK Simulator")
 
 model_type = st.selectbox(
     "Select a model",
