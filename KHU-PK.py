@@ -92,16 +92,16 @@ st.title("💊KHU-PK Simulator")
 model_type = st.selectbox(
     "Select a model",
     [
-        "1-Compartment IV",
-        "1-Compartment IV (Multiple Dosing)",
-        "1-Compartment PO",
-        "1-Compartment PO (Multiple Dosing)",
-        "1-Compartment Infusion",
-        "2-Compartment IV",
-        "2-Compartment IV (Multiple Dosing)",
-        "2-Compartment PO",
-        "2-Compartment PO (Multiple Dosing)",
-        "2-Compartment Infusion"
+        "1 Compartment IV",
+        "1 Compartment IV (Multiple Dosing)",
+        "1 Compartment PO",
+        "1 Compartment PO (Multiple Dosing)",
+        "1 Compartment Infusion",
+        "2 Compartment IV",
+        "2 Compartment IV (Multiple Dosing)",
+        "2 Compartment PO",
+        "2 Compartment PO (Multiple Dosing)",
+        "2 Compartment Infusion"
     ]
 )
 
@@ -114,34 +114,34 @@ tau = st.number_input("Dosing interval τ (hr)", value=8.0) if repeat else None
 n_doses = st.number_input("Number of doses", value=10, step=1) if repeat else 1
 
 # Parameter inputs
-if model_type.startswith("1-Compartment IV"):
+if model_type.startswith("1 Compartment IV"):
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
     kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
     params = {'dose': dose, 'kel': kel}
-elif model_type.startswith("1-Compartment PO"):
+elif model_type.startswith("1 Compartment PO"):
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
     ka = st.number_input("Absorption rate constant (ka, 1/hr)", value=1.0)
     kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
     params = {'dose': dose, 'ka': ka, 'kel': kel}
-elif model_type.startswith("2-Compartment IV"):
+elif model_type.startswith("2 Compartment IV"):
     V1 = st.number_input("Central volume (V1, L)", value=15.0)
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
     k21 = st.number_input("k21 (1/hr)", value=0.05)
     params = {'dose': dose, 'k10': k10, 'k12': k12, 'k21': k21}
-elif model_type.startswith("2-Compartment PO"):
+elif model_type.startswith("2 Compartment PO"):
     V1 = st.number_input("Central volume (V1, L)", value=15.0)
     ka = st.number_input("Absorption rate constant (ka, 1/hr)", value=1.2)
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
     k21 = st.number_input("k21 (1/hr)", value=0.05)
     params = {'dose': dose, 'ka': ka, 'k10': k10, 'k12': k12, 'k21': k21}
-elif model_type == "1-Compartment Infusion":
+elif model_type == "1 Compartment Infusion":
     Vd = st.number_input("Volume of distribution (Vd, L)", value=20.0)
     kel = st.number_input("Elimination rate constant (kel, 1/hr)", value=0.2)
     infusion_time = st.number_input("Infusion duration (hr)", value=2.0)
     params = {'dose': dose, 'kel': kel, 'infusion_time': infusion_time}
-elif model_type == "2-Compartment Infusion":
+elif model_type == "2 Compartment Infusion":
     V1 = st.number_input("Central volume (V1, L)", value=15.0)
     k10 = st.number_input("k10 (1/hr)", value=0.15)
     k12 = st.number_input("k12 (1/hr)", value=0.1)
@@ -160,27 +160,27 @@ else:
 # Run simulation
 time = create_time_vector(duration)
 
-if model_type.startswith("1-Compartment IV"):
+if model_type.startswith("1 Compartment IV"):
     y0 = [dose]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params, repeat)
     conc = result[:, 0] / Vd
-elif model_type.startswith("1-Compartment PO"):
+elif model_type.startswith("1 Compartment PO"):
     y0 = [dose, 0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_po_ode, y0, params, repeat)
     conc = result[:, 1] / Vd
-elif model_type == "1-Compartment Infusion":
+elif model_type == "1 Compartment Infusion":
     y0 = [0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_infusion_ode, y0, params, repeat)
     conc = result[:, 0] / Vd
-elif model_type.startswith("2-Compartment IV"):
+elif model_type.startswith("2 Compartment IV"):
     y0 = [dose, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_iv_ode, y0, params, repeat)
     conc = result[:, 0] / V1
-elif model_type.startswith("2-Compartment PO"):
+elif model_type.startswith("2 Compartment PO"):
     y0 = [dose, 0, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_po_ode, y0, params, repeat)
     conc = result[:, 1] / V1
-elif model_type == "2-Compartment Infusion":
+elif model_type == "2 Compartment Infusion":
     y0 = [0, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_infusion_ode, y0, params, repeat)
     conc = result[:, 0] / V1
@@ -188,7 +188,7 @@ elif model_type == "2-Compartment Infusion":
 # Plot results and compute metrics
 if st.button("Plot Graph"):
     fig, ax = plt.subplots()
-    ax.plot(time, conc, label='Plasma Concentration')
+    ax.plot(time, conc)
     ax.set_xlabel('Time (hr)')
     ax.set_ylabel('Concentration (mg/L)')
     ax.set_title('Concentration-Time Profile')
