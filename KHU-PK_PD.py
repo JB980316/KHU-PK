@@ -16,7 +16,7 @@ st.set_page_config(layout="centered")
 st.title("💊KHU-PK/PD simulator")
 
 # 모델 선택
-model = st.selectbox("모델을 선택하세요:", [
+model = st.selectbox("Select a model", [
     "Emax Model",
     "1 Compartment IV & Emax model",
     "1 Compartment Infusion & Emax model",
