@@ -7,6 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/1ZQfW040HahTsU-NkHMkxnehEWX4e95Zg
 """
 
+import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
 from scipy.integrate import odeint, simpson
