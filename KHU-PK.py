@@ -7,7 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1ZQfW040HahTsU-NkHMkxnehEWX4e95Zg
 """
 
-import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
 from scipy.integrate import odeint, simpson
@@ -17,7 +16,6 @@ from scipy.integrate import odeint, simpson
 def create_time_vector(duration, dt=0.1):
     return np.arange(0, duration + dt, dt)
 
-
 def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
     full_result = np.zeros((len(time), len(y0)))
     y = y0.copy()
@@ -26,7 +24,6 @@ def simulate_ode(time, tau, n_doses, ode_func, y0, params, repeat=False):
         for i in range(n_doses):
             t_start = i * tau
             t_end = time[-1] if i == n_doses - 1 else (i + 1) * tau
-            # Include final point in the last dosing interval
             if i == n_doses - 1:
                 mask = (time >= t_start) & (time <= t_end)
             else:
@@ -49,19 +46,16 @@ def one_compartment_iv_ode(y, t, p):
     A = y[0]
     return [-p['kel'] * A]
 
-
 def one_compartment_po_ode(y, t, p):
     Ag, A = y
     dAg_dt = -p['ka'] * Ag
     dA_dt = p['ka'] * Ag - p['kel'] * A
     return [dAg_dt, dA_dt]
 
-
 def one_compartment_infusion_ode(y, t, p):
     A = y[0]
     k0 = p['dose'] / p['infusion_time'] if t <= p['infusion_time'] else 0
     return [k0 - p['kel'] * A]
-
 
 def two_compartment_iv_ode(y, t, p):
     A1, A2 = y
@@ -69,14 +63,12 @@ def two_compartment_iv_ode(y, t, p):
     dA2 = p['k12'] * A1 - p['k21'] * A2
     return [dA1, dA2]
 
-
 def two_compartment_po_ode(y, t, p):
     Ag, A1, A2 = y
     dAg = -p['ka'] * Ag
     dA1 = p['ka'] * Ag - p['k10'] * A1 - p['k12'] * A1 + p['k21'] * A2
     dA2 = p['k12'] * A1 - p['k21'] * A2
     return [dAg, dA1, dA2]
-
 
 def two_compartment_infusion_ode(y, t, p):
     A1, A2 = y
@@ -152,7 +144,7 @@ elif model_type == "2 Compartment Infusion":
 # Simulation durations
 if repeat:
     metrics_end = tau * n_doses
-    extension = tau  # one extra interval for elimination
+    extension = tau
     duration = metrics_end + extension
 else:
     duration = 24
@@ -163,45 +155,44 @@ time = create_time_vector(duration)
 if model_type.startswith("1 Compartment IV"):
     y0 = [dose]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_iv_ode, y0, params, repeat)
-    conc = result[:, 0] / Vd
 elif model_type.startswith("1 Compartment PO"):
     y0 = [dose, 0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_po_ode, y0, params, repeat)
-    conc = result[:, 1] / Vd
 elif model_type == "1 Compartment Infusion":
     y0 = [0]
     result = simulate_ode(time, tau, int(n_doses), one_compartment_infusion_ode, y0, params, repeat)
-    conc = result[:, 0] / Vd
 elif model_type.startswith("2 Compartment IV"):
     y0 = [dose, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_iv_ode, y0, params, repeat)
-    conc = result[:, 0] / V1
 elif model_type.startswith("2 Compartment PO"):
     y0 = [dose, 0, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_po_ode, y0, params, repeat)
-    conc = result[:, 1] / V1
 elif model_type == "2 Compartment Infusion":
     y0 = [0, 0]
     result = simulate_ode(time, tau, int(n_doses), two_compartment_infusion_ode, y0, params, repeat)
-    conc = result[:, 0] / V1
+
+# New: compartment selector UI
+compartment_names = [f"Compartment {i+1}" for i in range(result.shape[1])]
+selected_compartments = st.multiselect("Select compartments to display", compartment_names, default=compartment_names)
 
 # Plot results and compute metrics
 if st.button("Plot Graph"):
     fig, ax = plt.subplots()
-    ax.plot(time, conc)
+    for i, name in enumerate(compartment_names):
+        if name in selected_compartments:
+            vol = Vd if 'Vd' in locals() else V1
+            ax.plot(time, result[:, i] / vol, label=name)
     ax.set_xlabel('Time (hr)')
     ax.set_ylabel('Concentration (mg/L)')
     ax.set_title('Concentration-Time Profile')
     ax.legend()
     st.pyplot(fig)
 
-    # Overall AUC
+    conc = result[:, 1] / Vd if model_type.startswith("1 Compartment PO") else result[:, 0] / (Vd if 'Vd' in locals() else V1)
     AUC = simpson(conc, time)
 
     if repeat:
-        # Calculate steady-state based on consecutive dosing cycles
         dt = time[1] - time[0]
-        # Indices for previous and last dosing intervals
         idx_prev = np.where((time >= metrics_end - 2*tau) & (time < metrics_end - tau))[0]
         idx_last = np.where((time >= metrics_end - tau) & (time < metrics_end))[0]
         conc_prev = conc[idx_prev]
@@ -210,11 +201,9 @@ if st.button("Plot Graph"):
         Cmax_last = np.max(conc_last)
         Cmin_prev = np.min(conc_prev)
         Cmin_last = np.min(conc_last)
-        # Steady-state if both peak and trough differences <5%
         ss_reached = (abs(Cmax_last - Cmax_prev) / Cmax_last < 0.05) and \
                      (abs(Cmin_last - Cmin_prev) / Cmin_last < 0.05)
         ss_text = '🟢 Steady-state reached' if ss_reached else '🔴 Not at steady-state'
-        # Metrics from last interval
         Css_max = Cmax_last
         Css_min = Cmin_last
         Css_avg = simpson(conc_last, time[idx_last]) / tau
