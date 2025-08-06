@@ -7,7 +7,7 @@ Original file is located at
     https://colab.research.google.com/drive/16sn_xGc60H2sP6PJZubL0eXRRLhtQQBM
 """
 
-# 📦 약물동태학 통합 분석 앱 (분석 방법 분리: NCA / Compartmental)
+# 📦 약물동태학 통합 분석 앱
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -44,10 +44,9 @@ else:
 analysis_type = st.sidebar.radio("🔍 분석 방법 선택", ["NCA 분석", "컴파트먼트 모델 분석"])
 
 #-----------------------------#
-# ⚙️ 공통 모델 정의
+# ⚙️ 공통 모델 함수 정의
 #-----------------------------#
-def exp_model_iv(t, k10, V, dose):
-    return dose / V * np.exp(-k10 * t)
+def exp_model_iv(t, k10, V, dose): return dose / V * np.exp(-k10 * t)
 
 def exp_model_po(t, ka, k, V, dose):
     return (dose * ka) / (V * (ka - k)) * (np.exp(-k * t) - np.exp(-ka * t))
@@ -97,34 +96,66 @@ def simulate_ode_two_comp_po(t, dose, ka, k10, k12, k21, V1):
 def perform_nca(df, terminal_indices=None):
     t, c = df['time'].values, df['conc'].values
     auc = np.trapz(c, t)
-    if terminal_indices is not None:
+    if terminal_indices:
         slope, _, _, _, _ = stats.linregress(t[terminal_indices], np.log(c[terminal_indices]))
     else:
         slope, _, _, _, _ = stats.linregress(t[-3:], np.log(c[-3:]))
     kel = -slope
-    half_life = np.log(2) / kel
-    clearance = st.sidebar.number_input("투여량 (mg)", value=100.0) / auc
-    return auc, kel, half_life, clearance
+    t12 = np.log(2) / kel
+    dose = st.sidebar.number_input("투여량 (mg)", value=100.0)
+    cl = dose / auc
+    return auc, kel, t12, cl
 
+#-----------------------------#
+# 📐 NCA 분석
+#-----------------------------#
+if analysis_type == "NCA 분석":
+    st.subheader("📐 NCA 분석")
 
+    auto_mode = st.radio("터미널 페이즈 선택", ["자동", "수동"])
+    if auto_mode == "수동":
+        selected_points = st.multiselect("터미널 구간 시간 선택", df['time'].tolist(), default=df['time'].tolist()[-3:])
+        terminal_idx = df.index[df['time'].isin(selected_points)].tolist()
+    else:
+        terminal_idx = None
+
+    auc, kel, t12, cl = perform_nca(df, terminal_idx)
+
+    st.markdown(f"""
+    **AUClast:** {auc:.2f}
+    **λz (kel):** {kel:.4f}
+    **t1/2:** {t12:.2f} h
+    **CL:** {cl:.2f}
+    """)
+
+    st.subheader("📈 농도-시간 곡선")
+    fig, ax = plt.subplots()
+    ax.plot(df['time'], df['conc'], 'o-', label='Observed')
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Concentration")
+    ax.legend()
+    st.pyplot(fig)
 
 #-----------------------------#
 # 🧮 컴파트먼트 모델 분석
 #-----------------------------#
 elif analysis_type == "컴파트먼트 모델 분석":
+    st.subheader("🧮 컴파트먼트 모델 분석")
+
     model = st.sidebar.selectbox("모델 선택", [
-        "1C IV (Exp)", "1C IV (ODE)",
-        "1C PO (Exp)", "1C PO (ODE)",
+        "1C IV (Exp)", "1C PO (Exp)",
         "2C IV (Exp)", "2C PO (Exp)",
+        "1C IV (ODE)", "1C PO (ODE)",
         "2C IV (ODE)", "2C PO (ODE)"
     ])
     dose = st.sidebar.number_input("투여량 (mg)", value=100.0)
-    log_y = st.sidebar.checkbox("로그 스케일", value=False)
+    use_log = st.sidebar.checkbox("로그 스케일로 시각화", value=False)
 
-    def fit_model(df, model):
-        t = df['time'].values
-        y = df['conc'].values
+    t = df['time'].values
+    y = df['conc'].values
 
+    try:
+        # 모델별 피팅
         if model == "1C IV (Exp)":
             popt, _ = curve_fit(lambda t, k10, V: exp_model_iv(t, k10, V, dose), t, y, bounds=(0, np.inf))
             pred = exp_model_iv(t, *popt, dose)
@@ -141,8 +172,7 @@ elif analysis_type == "컴파트먼트 모델 분석":
             params = dict(zip(["A", "alpha", "B", "beta"], popt))
 
         elif model == "2C PO (Exp)":
-            popt, _ = curve_fit(lambda t, ka, A, alpha, B, beta: two_comp_po_model(t, ka, A, alpha, B, beta),
-                                t, y, bounds=(0, np.inf))
+            popt, _ = curve_fit(lambda t, ka, A, alpha, B, beta: two_comp_po_model(t, ka, A, alpha, B, beta), t, y, bounds=(0, np.inf))
             pred = two_comp_po_model(t, *popt)
             params = dict(zip(["ka", "A", "alpha", "B", "beta"], popt))
 
@@ -170,47 +200,47 @@ elif analysis_type == "컴파트먼트 모델 분석":
             pred = model_func(t, *popt)
             params = dict(zip(["ka", "k10", "k12", "k21", "V1"], popt))
 
+        # 분석 결과
         residuals = y - pred
         ss_res = np.sum(residuals**2)
         aic = len(y) * np.log(ss_res / len(y)) + 2 * len(popt)
         bic = len(y) * np.log(ss_res / len(y)) + len(popt) * np.log(len(y))
-        return pred, params, residuals, aic, bic
 
-    # 실행
-    pred, params, residuals, aic, bic = fit_model(df, model)
-    df_out = df.copy()
-    df_out['Predicted'] = pred
-    df_out['Residuals'] = residuals
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("📊 실측 vs 예측")
+            fig, ax = plt.subplots()
+            ax.plot(t, y, 'o', label='Observed')
+            ax.plot(t, pred, '-', label='Predicted')
+            ax.set_xlabel("Time")
+            ax.set_ylabel("Concentration")
+            if use_log:
+                ax.set_yscale("log")
+            ax.legend()
+            st.pyplot(fig)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("📊 실측 vs 예측")
-        fig, ax = plt.subplots()
-        ax.plot(df['time'], df['conc'], 'o', label='Observed')
-        ax.plot(df['time'], pred, '-', label='Predicted')
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Concentration")
-        if log_y:
-            ax.set_yscale("log")
-        ax.legend()
-        st.pyplot(fig)
+        with col2:
+            st.subheader("🧮 추정 파라미터")
+            for k, v in params.items():
+                st.write(f"**{k}**: {v:.4f}")
+            st.write(f"**AIC**: {aic:.2f}")
+            st.write(f"**BIC**: {bic:.2f}")
 
-    with col2:
-        st.subheader("🧮 파라미터 추정 결과")
-        for k, v in params.items():
-            st.write(f"**{k}**: {v:.4f}")
-        st.write(f"**AIC**: {aic:.2f}")
-        st.write(f"**BIC**: {bic:.2f}")
+        st.subheader("📉 잔차 분석")
+        fig2, ax2 = plt.subplots(1, 2, figsize=(10, 4))
+        sns.histplot(residuals, kde=True, ax=ax2[0])
+        ax2[0].set_title("Residual Histogram")
+        ax2[1].scatter(pred, residuals)
+        ax2[1].axhline(0, color='gray', linestyle='--')
+        ax2[1].set_title("Residuals vs Fitted")
+        st.pyplot(fig2)
 
-    st.subheader("📉 잔차 분석")
-    fig2, ax2 = plt.subplots(1, 2, figsize=(10, 4))
-    sns.histplot(residuals, kde=True, ax=ax2[0])
-    ax2[0].set_title("Residual Histogram")
-    ax2[1].scatter(pred, residuals)
-    ax2[1].axhline(0, color='gray', linestyle='--')
-    ax2[1].set_title("Residuals vs Fitted")
-    st.pyplot(fig2)
+        st.subheader("📥 결과 다운로드")
+        df_out = df.copy()
+        df_out['Predicted'] = pred
+        df_out['Residuals'] = residuals
+        csv = df_out.to_csv(index=False)
+        st.download_button("📄 결과 CSV 다운로드", csv, "pk_result.csv", "text/csv")
 
-    st.subheader("📥 결과 다운로드")
-    csv = df_out.to_csv(index=False)
-    st.download_button("📄 결과 CSV 다운로드", csv, "pk_result.csv", "text/csv")
+    except Exception as e:
+        st.error(f"❌ 모델 피팅 중 오류 발생: {e}")
