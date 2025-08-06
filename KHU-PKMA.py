@@ -33,6 +33,24 @@ if example:
     df = pd.DataFrame({'time': time, 'conc': conc})
 else:
     uploaded_file = st.sidebar.file_uploader("CSV 업로드 (time, conc 열 포함)", type="csv")
+    
+    with st.sidebar.expander("📝 CSV 형식 예시 보기"):
+        st.markdown("""
+        업로드할 CSV 파일은 다음 형식을 따라야 합니다:
+
+        | time | conc |
+        |------|------|
+        | 0.5  | 15.3 |
+        | 1.0  | 13.1 |
+        | 2.0  | 10.0 |
+        | ...  | ...  |
+
+        - `time`: 시간 (단위: 시간, h)
+        - `conc`: 약물 농도 (예: mg/L)
+        - 열 이름은 반드시 `time`, `conc`여야 함
+        - CSV 파일은 쉼표로 구분되어야 함
+        """)
+    
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
     else:
