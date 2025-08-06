@@ -18,7 +18,8 @@ from scipy.integrate import odeint
 from scipy import stats
 
 st.set_page_config(layout="wide")
-st.title("💊 약물동태학 통합 분석 앱")
+st.title("💊 KHU-PKMA")
+st.caption("Pharmacokinetic Modeling Assistant")
 
 #-----------------------------#
 # 📁 데이터 입력
