@@ -138,14 +138,13 @@ if analysis_type == "NCA 분석":
     else:
         terminal_idx = None
 
-    auc, kel, t12, cl = perform_nca(df, terminal_idx)
+    auc, kel, t12, cl = perform_nca(df, terminal_idx, dose_mg=st.sidebar.number_input("투여량 (mg)", 100.0))
 
-    st.markdown(f"""
-    **AUClast:** {auc:.2f}
-    **λz (kel):** {kel:.4f}
-    **t1/2:** {t12:.2f} h
-    **CL:** {cl:.2f}
-    """)
+    st.subheader("📐 NCA 결과")
+    st.markdown(f"**AUClast:** {auc:.2f} (units: conc·time)")
+    st.markdown(f"**λz (kel):** {kel:.4f} 1/h" if np.isfinite(kel) else "**λz (kel):** 계산 불가")
+    st.markdown(f"**t1/2:** {t12:.2f} h" if np.isfinite(t12) else "**t1/2:** 계산 불가")
+    st.markdown(f"**CL:** {cl:.2f} (dose/AUClast)" if np.isfinite(cl) else "**CL:** 계산 불가")
 
     st.subheader("📈 농도-시간 곡선")
     fig, ax = plt.subplots()
