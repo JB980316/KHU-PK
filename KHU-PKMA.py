@@ -162,6 +162,8 @@ elif analysis_type == "컴파트먼트 모델 분석":
     st.subheader("🧮 컴파트먼트 모델 분석")
 
     model = st.sidebar.selectbox("모델 선택", [
+        "1C IV (Exp)", "1C PO (Exp)",
+        "2C IV (Exp)", "2C PO (Exp)",
         "1C IV (ODE)", "1C PO (ODE)",
         "2C IV (ODE)", "2C PO (ODE)"
     ])
@@ -173,7 +175,27 @@ elif analysis_type == "컴파트먼트 모델 분석":
 
     try:
         # 모델별 피팅
-        if model == "1C IV (ODE)":
+        if model == "1C IV (Exp)":
+            popt, _ = curve_fit(lambda t, k10, V: exp_model_iv(t, k10, V, dose), t, y, bounds=(0, np.inf))
+            pred = exp_model_iv(t, *popt, dose)
+            params = dict(zip(["k10", "V"], popt))
+
+        elif model == "1C PO (Exp)":
+            popt, _ = curve_fit(lambda t, ka, k, V: exp_model_po(t, ka, k, V, dose), t, y, bounds=(0, np.inf))
+            pred = exp_model_po(t, *popt, dose)
+            params = dict(zip(["ka", "k", "V"], popt))
+
+        elif model == "2C IV (Exp)":
+            popt, _ = curve_fit(two_comp_model, t, y, bounds=(0, np.inf))
+            pred = two_comp_model(t, *popt)
+            params = dict(zip(["A", "alpha", "B", "beta"], popt))
+
+        elif model == "2C PO (Exp)":
+            popt, _ = curve_fit(lambda t, ka, A, alpha, B, beta: two_comp_po_model(t, ka, A, alpha, B, beta), t, y, bounds=(0, np.inf))
+            pred = two_comp_po_model(t, *popt)
+            params = dict(zip(["ka", "A", "alpha", "B", "beta"], popt))
+
+        elif model == "1C IV (ODE)":
             def model_func(t, k10, V): return simulate_ode_iv(t, dose, k10, V)
             popt, _ = curve_fit(model_func, t, y, bounds=(0, np.inf))
             pred = model_func(t, *popt)
