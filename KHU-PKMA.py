@@ -125,6 +125,66 @@ def perform_nca(df, terminal_indices=None):
     cl = dose / auc
     return auc, kel, t12, cl
 
+def show_model_info(model):
+    st.markdown("### 📘 모델 설명")
+
+    if model == "1C IV (ODE)":
+        st.image("images/1c_iv.png", caption="1-컴파트먼트 IV 모델", use_column_width=True)
+        st.latex(r"\frac{dA}{dt} = -k_{10} \cdot A")
+        st.latex(r"C(t) = \frac{A(t)}{V}")
+        st.markdown("""
+        - **k₁₀ (소실속도상수, h⁻¹)**: 중심구획에서 제거되는 비율  
+        - **V (분포용적, L)**: 약물이 퍼지는 공간의 용적  
+        """)
+
+    elif model == "1C PO (ODE)":
+        st.image("images/1c_po.png", caption="1-컴파트먼트 PO 모델", use_column_width=True)
+        st.latex(r"""
+        \begin{cases}
+        \frac{dA_g}{dt} = -k_a A_g \\
+        \frac{dA_c}{dt} = k_a A_g - k A_c
+        \end{cases}
+        """)
+        st.latex(r"C(t) = \frac{A_c(t)}{V}")
+        st.markdown("""
+        - **kₐ (흡수속도상수, h⁻¹)**: 위장관에서 중심구획으로 이동하는 속도  
+        - **k (소실속도상수, h⁻¹)**: 중심구획에서의 제거 속도  
+        - **V (L)**: 중심구획의 분포용적  
+        """)
+
+    elif model == "2C IV (ODE)":
+        st.image("images/2c_iv.png", caption="2-컴파트먼트 IV 모델", use_column_width=True)
+        st.latex(r"""
+        \begin{cases}
+        \frac{dA_1}{dt} = -k_{10}A_1 - k_{12}A_1 + k_{21}A_2 \\
+        \frac{dA_2}{dt} = k_{12}A_1 - k_{21}A_2
+        \end{cases}
+        """)
+        st.latex(r"C(t) = \frac{A_1(t)}{V_1}")
+        st.markdown("""
+        - **A₁**: 중심구획의 약물량  
+        - **A₂**: 말초구획의 약물량  
+        - **k₁₀, k₁₂, k₂₁ (h⁻¹)**: 제거 및 구획 간 이동 속도  
+        - **V₁ (L)**: 중심구획 분포용적  
+        """)
+
+    elif model == "2C PO (ODE)":
+        st.image("images/2c_po.png", caption="2-컴파트먼트 PO 모델", use_column_width=True)
+        st.latex(r"""
+        \begin{cases}
+        \frac{dA_g}{dt} = -k_a A_g \\
+        \frac{dA_1}{dt} = k_a A_g - k_{10}A_1 - k_{12}A_1 + k_{21}A_2 \\
+        \frac{dA_2}{dt} = k_{12}A_1 - k_{21}A_2
+        \end{cases}
+        """)
+        st.latex(r"C(t) = \frac{A_1(t)}{V_1}")
+        st.markdown("""
+        - **A_g**: 위장관 내 약물량  
+        - **A₁**: 중심구획 약물량, **A₂**: 말초구획 약물량  
+        - **kₐ, k₁₀, k₁₂, k₂₁ (h⁻¹)**: 흡수 및 이동 속도  
+        - **V₁ (L)**: 중심구획 분포용적  
+        """)
+
 #-----------------------------#
 # 📐 NCA 분석
 #-----------------------------#
@@ -165,6 +225,9 @@ elif analysis_type == "컴파트먼트 모델 분석":
         "1 Compartment IV", "1 Compartment PO",
         "2 Compartment IV", "2 Compartment PO"
     ])
+
+    show_model_info(model)
+    
     dose = st.sidebar.number_input("투여량 (mg)", value=100.0)
     use_log = st.sidebar.checkbox("로그 스케일로 시각화", value=False)
 
