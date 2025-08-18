@@ -240,8 +240,26 @@ elif analysis_type == "컴파트먼트 모델 분석":
 
         with col2:
             st.subheader("🧮 추정 파라미터")
+        
+            # 파라미터 단위 매핑
+            param_units = {
+                "k10": "h⁻¹",
+                "ka": "h⁻¹",
+                "k": "h⁻¹",
+                "k12": "h⁻¹",
+                "k21": "h⁻¹",
+                "V": "L",
+                "V1": "L",
+                "A": "mg/L",
+                "B": "mg/L",
+                "alpha": "h⁻¹",
+                "beta": "h⁻¹"
+            }
+        
             for k, v in params.items():
-                st.write(f"**{k}**: {v:.4f}")
+                unit = param_units.get(k, "")
+                st.write(f"**{k} ({unit})**: {v:.4f}")
+        
             st.write(f"**AIC**: {aic:.2f}")
             st.write(f"**BIC**: {bic:.2f}")
 
