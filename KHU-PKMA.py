@@ -130,10 +130,10 @@ def show_model_info(model):
 
     if model == "1 Compartment IV":
         st.image("images/1CIV.png", caption="1-컴파트먼트 IV 모델", use_container_width=True)
-        st.latex(r"\frac{dA}{dt} = -k_{10} \cdot A")
+        st.latex(r"\frac{dA}{dt} = -k \cdot A")
         st.latex(r"C(t) = \frac{A(t)}{V}")
         st.markdown("""
-        - **k₁₀ (소실속도상수, h⁻¹)**: 중심구획에서 제거되는 비율  
+        - **k (소실속도상수, h⁻¹)**: 중심구획에서 제거되는 비율  
         - **V (분포용적, L)**: 약물이 퍼지는 공간의 용적  
         """)
 
@@ -156,7 +156,7 @@ def show_model_info(model):
         st.image("images/2CIV.png", caption="2-컴파트먼트 IV 모델", use_container_width=True)
         st.latex(r"""
         \begin{cases}
-        \frac{dA_1}{dt} = -k_{10}A_1 - k_{12}A_1 + k_{21}A_2 \\
+        \frac{dA_1}{dt} = -kA_1 - k_{12}A_1 + k_{21}A_2 \\
         \frac{dA_2}{dt} = k_{12}A_1 - k_{21}A_2
         \end{cases}
         """)
@@ -164,7 +164,7 @@ def show_model_info(model):
         st.markdown("""
         - **A₁**: 중심구획의 약물량  
         - **A₂**: 말초구획의 약물량  
-        - **k₁₀, k₁₂, k₂₁ (h⁻¹)**: 제거 및 구획 간 이동 속도  
+        - **k, k₁₂, k₂₁ (h⁻¹)**: 제거 및 구획 간 이동 속도  
         - **V₁ (L)**: 중심구획 분포용적  
         """)
 
