@@ -173,7 +173,7 @@ elif analysis_type == "컴파트먼트 모델 분석":
 
     try:
         # 모델별 피팅
-        elif model == "1C IV (ODE)":
+        if model == "1C IV (ODE)":
             def model_func(t, k10, V): return simulate_ode_iv(t, dose, k10, V)
             popt, _ = curve_fit(model_func, t, y, bounds=(0, np.inf))
             pred = model_func(t, *popt)
