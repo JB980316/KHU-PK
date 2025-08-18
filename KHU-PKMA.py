@@ -128,8 +128,8 @@ def perform_nca(df, terminal_indices=None):
 def show_model_info(model):
     st.markdown("### 📘 모델 설명")
 
-    if model == "1C IV (ODE)":
-        st.image("images/1c_iv.png", caption="1-컴파트먼트 IV 모델", use_column_width=True)
+    if model == "1 Compartment IV":
+        st.image("images/1CIV.png", caption="1-컴파트먼트 IV 모델", use_column_width=True)
         st.latex(r"\frac{dA}{dt} = -k_{10} \cdot A")
         st.latex(r"C(t) = \frac{A(t)}{V}")
         st.markdown("""
@@ -137,8 +137,8 @@ def show_model_info(model):
         - **V (분포용적, L)**: 약물이 퍼지는 공간의 용적  
         """)
 
-    elif model == "1C PO (ODE)":
-        st.image("images/1c_po.png", caption="1-컴파트먼트 PO 모델", use_column_width=True)
+    elif model == "1 Compartment PO":
+        st.image("images/1CPO.png", caption="1-컴파트먼트 PO 모델", use_column_width=True)
         st.latex(r"""
         \begin{cases}
         \frac{dA_g}{dt} = -k_a A_g \\
@@ -152,8 +152,8 @@ def show_model_info(model):
         - **V (L)**: 중심구획의 분포용적  
         """)
 
-    elif model == "2C IV (ODE)":
-        st.image("images/2c_iv.png", caption="2-컴파트먼트 IV 모델", use_column_width=True)
+    elif model == "2 Compartment IV":
+        st.image("images/2CIV.png", caption="2-컴파트먼트 IV 모델", use_column_width=True)
         st.latex(r"""
         \begin{cases}
         \frac{dA_1}{dt} = -k_{10}A_1 - k_{12}A_1 + k_{21}A_2 \\
@@ -168,8 +168,8 @@ def show_model_info(model):
         - **V₁ (L)**: 중심구획 분포용적  
         """)
 
-    elif model == "2C PO (ODE)":
-        st.image("images/2c_po.png", caption="2-컴파트먼트 PO 모델", use_column_width=True)
+    elif model == "2 Compartment PO":
+        st.image("images/2CPO.png", caption="2-컴파트먼트 PO 모델", use_column_width=True)
         st.latex(r"""
         \begin{cases}
         \frac{dA_g}{dt} = -k_a A_g \\
