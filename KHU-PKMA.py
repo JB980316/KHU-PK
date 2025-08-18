@@ -129,7 +129,7 @@ def show_model_info(model):
     st.markdown("### 📘 모델 설명")
 
     if model == "1 Compartment IV":
-        st.image("images/1CIV.png", caption="1-컴파트먼트 IV 모델", use_column_width=True)
+        st.image("images/1CIV.png", caption="1-컴파트먼트 IV 모델", use_container_width=True)
         st.latex(r"\frac{dA}{dt} = -k_{10} \cdot A")
         st.latex(r"C(t) = \frac{A(t)}{V}")
         st.markdown("""
@@ -138,7 +138,7 @@ def show_model_info(model):
         """)
 
     elif model == "1 Compartment PO":
-        st.image("images/1CPO.png", caption="1-컴파트먼트 PO 모델", use_column_width=True)
+        st.image("images/1CPO.png", caption="1-컴파트먼트 PO 모델", use_container_width=True)
         st.latex(r"""
         \begin{cases}
         \frac{dA_g}{dt} = -k_a A_g \\
@@ -153,7 +153,7 @@ def show_model_info(model):
         """)
 
     elif model == "2 Compartment IV":
-        st.image("images/2CIV.png", caption="2-컴파트먼트 IV 모델", use_column_width=True)
+        st.image("images/2CIV.png", caption="2-컴파트먼트 IV 모델", use_container_width=True)
         st.latex(r"""
         \begin{cases}
         \frac{dA_1}{dt} = -k_{10}A_1 - k_{12}A_1 + k_{21}A_2 \\
@@ -169,7 +169,7 @@ def show_model_info(model):
         """)
 
     elif model == "2 Compartment PO":
-        st.image("images/2CPO.png", caption="2-컴파트먼트 PO 모델", use_column_width=True)
+        st.image("images/2CPO.png", caption="2-컴파트먼트 PO 모델", use_container_width=True)
         st.latex(r"""
         \begin{cases}
         \frac{dA_g}{dt} = -k_a A_g \\
