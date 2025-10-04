@@ -7,9 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1DXM4AH4tbqbdX0VN3NVemnV1RbDrsM8O
 """
 
-# -*- coding: utf-8 -*-
-"""KHU-PKMA.ipynb (refactored: robust fitting + English UI)"""
-
 # 📦 Pharmacokinetics Integrated Analysis App
 import streamlit as st
 import numpy as np
