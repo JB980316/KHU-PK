@@ -23,7 +23,7 @@ import warnings
 # ----------------------------- #
 st.set_page_config(layout="wide")
 st.title("💊 KHU-PKMA")
-st.caption("Pharmacokinetic Modeling Assistant")
+st.caption("Pharmacokinetic Model Assistant")
 
 # ----------------------------- #
 # 📁 Data Input
