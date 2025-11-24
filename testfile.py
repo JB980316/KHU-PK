@@ -8,11 +8,12 @@ Original file is located at
 """
 
 # -*- coding: utf-8 -*-
-"""KHU-PKMA Streamlit App
-NCA는 그대로, 컴파트먼트 분석은 전부 ODE 형태 + PKSolver 스타일 피팅
+"""
+KHU-PKMA Streamlit App
+- NCA: 원래 방식 유지
+- Compartment Model: 전부 ODE 기반 + PKSolver 스타일 초기값/Weight
 """
 
-# 📦 Pharmacokinetics Integrated Analysis App
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -64,7 +65,6 @@ else:
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
-        # Basic sanitation
         if not set(["time", "conc"]).issubset(df.columns):
             st.error("CSV must have columns named exactly 'time' and 'conc'.")
             st.stop()
@@ -79,6 +79,9 @@ else:
         st.warning("Please upload a CSV file or select example data.")
         st.stop()
 
+# 공통으로 쓰는 Dose 입력 (NCA/Compartment 둘 다 사용)
+dose = st.sidebar.number_input("Dose (mg)", value=100.0, min_value=0.0, step=10.0)
+
 # ----------------------------- #
 # 🧭 Select Analysis Type
 # ----------------------------- #
@@ -87,20 +90,19 @@ analysis_type = st.sidebar.radio(
 )
 
 # ----------------------------- #
-# ⚙️ 공통 모델 함수들 (전부 ODE 기반)
+# ⚙️ ODE Model Functions
 # ----------------------------- #
 
 def simulate_ode_iv(t, dose, k10, V):
-    """1 Compartment IV bolus ODE: dA/dt = -k10*A, C = A/V"""
+    """1C IV: dA/dt = -k10*A, C = A/V"""
     def ode_iv(A, tt):
         return -k10 * A
-    y0 = [dose]
-    # t은 증가 순서라고 가정
-    result = odeint(ode_iv, y0, t)
-    return result[:, 0] / V
+    y0 = dose
+    A = odeint(ode_iv, y0, t).flatten()
+    return A / V
 
 def simulate_ode_po(t, dose, ka, k, V):
-    """1 Compartment PO: A_gut, A_central"""
+    """1C PO: A_gut, A_central"""
     def ode_po(y, tt):
         A_gut, A_c = y
         dA_gut = -ka * A_gut
@@ -111,7 +113,7 @@ def simulate_ode_po(t, dose, ka, k, V):
     return result[:, 1] / V
 
 def simulate_ode_two_comp_iv(t, dose, k10, k12, k21, V1):
-    """2 Compartment IV: A1, A2"""
+    """2C IV: A1, A2"""
     def model(y, tt):
         A1, A2 = y
         dA1dt = -k10 * A1 - k12 * A1 + k21 * A2
@@ -122,7 +124,7 @@ def simulate_ode_two_comp_iv(t, dose, k10, k12, k21, V1):
     return result[:, 0] / V1
 
 def simulate_ode_two_comp_po(t, dose, ka, k10, k12, k21, V1):
-    """2 Compartment PO: A_gut, A1, A2"""
+    """2C PO: A_gut, A1, A2"""
     def model(y, tt):
         A_gut, A1, A2 = y
         dA_gut = -ka * A_gut
@@ -134,9 +136,9 @@ def simulate_ode_two_comp_po(t, dose, ka, k10, k12, k21, V1):
     return result[:, 1] / V1
 
 # ----------------------------- #
-# NCA (원래대로 유지)
+# NCA (원래 로직, 단 dose를 인자로 받도록 변경)
 # ----------------------------- #
-def perform_nca(df, terminal_indices=None):
+def perform_nca(df, terminal_indices, dose):
     t = df['time'].values.astype(float)
     c = df['conc'].values.astype(float)
 
@@ -150,4 +152,325 @@ def perform_nca(df, terminal_indices=None):
     else:
         mask_pos = c > 0
         t_pos = t[mask_pos]
-        c_pos =_
+        c_pos = c[mask_pos]
+        if len(t_pos) < 3:
+            t_term, c_term = t_pos[-2:], c_pos[-2:]
+        else:
+            t_term, c_term = t_pos[-3:], c_pos[-3:]
+
+    if len(t_term) < 2 or np.any(c_term <= 0):
+        kel = np.nan
+        t12 = np.nan
+    else:
+        slope, _, _, _, _ = stats.linregress(t_term, np.log(c_term))
+        kel = -slope
+        t12 = np.log(2) / kel if kel > 0 else np.nan
+
+    cl = dose / auc if auc > 0 else np.nan
+    return auc, kel, t12, cl
+
+def show_model_info(model):
+    st.markdown("### 📘 Model Description")
+
+    def safe_image(path, caption):
+        try:
+            st.image(path, caption=caption, use_container_width=True)
+        except Exception:
+            pass  # 이미지 없으면 그냥 넘어감
+
+    if model == "1 Compartment IV":
+        safe_image("images/1CIV.png", "1-Compartment IV Model")
+        st.latex(r"\frac{dA}{dt} = -k \cdot A,\quad C(t) = \frac{A(t)}{V}")
+        st.markdown("""
+        - **k (Elimination rate constant, h⁻¹)**
+        - **V (Volume of distribution, L)**
+        """)
+
+    elif model == "1 Compartment PO":
+        safe_image("images/1CPO.png", "1-Compartment PO Model")
+        st.latex(r"""
+        \begin{cases}
+        \frac{dA_g}{dt} = -k_a A_g \\
+        \frac{dA_c}{dt} = k_a A_g - k A_c
+        \end{cases}
+        """)
+        st.latex(r"C(t) = \frac{A_c(t)}{V}")
+        st.markdown("""
+        - **kₐ (Absorption rate constant, h⁻¹)**
+        - **k (Elimination rate constant, h⁻¹)**
+        - **V (L)**
+        """)
+
+    elif model == "2 Compartment IV":
+        safe_image("images/2CIV.png", "2-Compartment IV Model")
+        st.latex(r"""
+        \begin{cases}
+        \frac{dA_1}{dt} = -k_{10}A_1 - k_{12}A_1 + k_{21}A_2 \\
+        \frac{dA_2}{dt} = k_{12}A_1 - k_{21}A_2
+        \end{cases}
+        """)
+        st.latex(r"C(t) = \frac{A_1(t)}{V_1}")
+        st.markdown("""
+        - **k₁₀, k₁₂, k₂₁ (h⁻¹)**
+        - **V₁ (L)**
+        """)
+
+    elif model == "2 Compartment PO":
+        safe_image("images/2CPO.png", "2-Compartment PO Model")
+        st.latex(r"""
+        \begin{cases}
+        \frac{dA_g}{dt} = -k_a A_g \\
+        \frac{dA_1}{dt} = k_a A_g - k_{10}A_1 - k_{12}A_1 + k_{21}A_2 \\
+        \frac{dA_2}{dt} = k_{12}A_1 - k_{21}A_2
+        \end{cases}
+        """)
+        st.latex(r"C(t) = \frac{A_1(t)}{V_1}")
+        st.markdown("""
+        - **kₐ, k₁₀, k₁₂, k₂₁ (h⁻¹)**
+        - **V₁ (L)**
+        """)
+
+# λz 추정 (컴파트먼트 초기값용)
+def estimate_lambda_z(t, y, n_points=3):
+    mask = y > 0
+    t_pos = t[mask]
+    c_pos = y[mask]
+    if len(t_pos) < 2:
+        return np.nan
+    if len(t_pos) <= n_points:
+        t_term, c_term = t_pos, c_pos
+    else:
+        t_term, c_term = t_pos[-n_points:], c_pos[-n_points:]
+    if np.any(c_term <= 0):
+        return np.nan
+    slope, _, _, _, _ = stats.linregress(t_term, np.log(c_term))
+    kel = -slope
+    return kel if kel > 0 else np.nan
+
+# ----------------------------- #
+# 📐 NCA Analysis
+# ----------------------------- #
+if analysis_type == "NCA Analysis":
+    st.subheader("📐 NCA Analysis")
+
+    auto_mode = st.radio("Terminal Phase Selection", ["Automatic", "Manual"])
+    if auto_mode == "Manual":
+        selected_points = st.multiselect(
+            "Select terminal phase times",
+            df['time'].tolist(),
+            default=df['time'].tolist()[-3:]
+        )
+        terminal_idx = df.index[df['time'].isin(selected_points)].tolist()
+    else:
+        terminal_idx = None
+
+    auc, kel, t12, cl = perform_nca(df, terminal_idx, dose)
+
+    st.markdown(f"""
+    **AUClast:** {auc:.2f} (h·mg/L)
+    **λz (kel):** {kel if np.isfinite(kel) else float('nan'):.4f} h⁻¹
+    **t1/2:** {t12 if np.isfinite(t12) else float('nan'):.2f} h
+    **CL:** {cl if np.isfinite(cl) else float('nan'):.2f} L/h
+    """)
+
+    st.subheader("📈 Concentration-Time Curve")
+    fig, ax = plt.subplots()
+    ax.plot(df['time'], df['conc'], 'o-', label='Observed')
+    ax.set_xlabel("Time (h)")
+    ax.set_ylabel("Concentration (mg/L)")
+    ax.legend()
+    st.pyplot(fig)
+
+# ----------------------------- #
+# 🧮 Compartment Model Analysis (ODE + PKSolver 스타일)
+# ----------------------------- #
+elif analysis_type == "Compartment Model Analysis":
+    st.subheader("🧮 Compartment Model Analysis")
+
+    model = st.sidebar.selectbox(
+        "Select Model",
+        ["1 Compartment IV", "1 Compartment PO", "2 Compartment IV", "2 Compartment PO"]
+    )
+    show_model_info(model)
+
+    use_log = st.sidebar.checkbox("Plot in Log Scale", value=False)
+
+    # PKSolver 스타일 Weight 선택
+    weight_type = st.sidebar.selectbox(
+        "Weighting (PKSolver style)",
+        ["1", "1/Y", "1/Y^2"],
+        index=0
+    )
+
+    # Data vectors
+    t = df['time'].values.astype(float)
+    y = df['conc'].values.astype(float)
+
+    if np.any(~np.isfinite(t)) or np.any(~np.isfinite(y)):
+        st.error("Non-finite values found in time/conc.")
+        st.stop()
+
+    # Weight → sigma 변환
+    def make_sigma(y, weight_type):
+        if weight_type == "1":
+            return None
+        y_pos = y.copy()
+        if np.any(y_pos > 0):
+            min_pos = np.min(y_pos[y_pos > 0])
+        else:
+            min_pos = 1.0
+        y_pos[y_pos <= 0] = min_pos * 0.1
+        if weight_type == "1/Y":
+            sigma = np.sqrt(y_pos)      # w = 1/Y → sigma ≈ √Y
+        elif weight_type == "1/Y^2":
+            sigma = y_pos               # w = 1/Y^2 → sigma ≈ Y
+        else:
+            sigma = None
+        return sigma
+
+    sigma = make_sigma(y, weight_type)
+
+    # 모델 피팅 (전부 ODE 사용)
+    def fit_model(model_name, t, y, dose):
+        bounds = (0, np.inf)
+
+        kel_guess = estimate_lambda_z(t, y, n_points=3)
+        if not np.isfinite(kel_guess):
+            kel_guess = 0.2  # fallback
+
+        # 1 Compartment IV
+        if model_name == "1 Compartment IV":
+            def model_func(tt, k10, V):
+                return simulate_ode_iv(tt, dose, k10, V)
+
+            mask = y > 0
+            t_pos = t[mask]
+            c_pos = y[mask]
+            if len(t_pos) >= 2:
+                slope, intercept, _, _, _ = stats.linregress(t_pos, np.log(c_pos))
+                k0 = -slope if slope < 0 else kel_guess
+                c0 = np.exp(intercept)
+                V0 = dose / c0 if c0 > 0 else dose / max(y.max(), 1e-6)
+            else:
+                k0 = kel_guess
+                V0 = dose / max(y.max(), 1e-6)
+
+            p0 = [max(k0, 1e-4), max(V0, 1e-3)]
+            param_names = ["k10", "V"]
+
+        # 1 Compartment PO
+        elif model_name == "1 Compartment PO":
+            def model_func(tt, ka, k, V):
+                return simulate_ode_po(tt, dose, ka, k, V)
+
+            k0 = kel_guess
+            ka0 = max(2.0 * k0, 0.5)  # ka > k 가정
+            V0 = dose / max(y.max(), 1e-6)
+            p0 = [ka0, max(k0, 1e-4), max(V0, 1e-3)]
+            param_names = ["ka", "k", "V"]
+
+        # 2 Compartment IV
+        elif model_name == "2 Compartment IV":
+            def model_func(tt, k10, k12, k21, V1):
+                return simulate_ode_two_comp_iv(tt, dose, k10, k12, k21, V1)
+
+            k10_0 = kel_guess
+            k12_0 = max(k10_0 * 0.5, 0.1)
+            k21_0 = max(k10_0 * 0.5, 0.1)
+            V1_0 = dose / max(y.max(), 1e-6)
+            p0 = [max(k10_0, 1e-4), k12_0, k21_0, max(V1_0, 1e-3)]
+            param_names = ["k10", "k12", "k21", "V1"]
+
+        # 2 Compartment PO
+        elif model_name == "2 Compartment PO":
+            def model_func(tt, ka, k10, k12, k21, V1):
+                return simulate_ode_two_comp_po(tt, dose, ka, k10, k12, k21, V1)
+
+            k10_0 = kel_guess
+            ka0 = max(2.0 * k10_0, 0.5)
+            k12_0 = max(k10_0 * 0.5, 0.1)
+            k21_0 = max(k10_0 * 0.5, 0.1)
+            V1_0 = dose / max(y.max(), 1e-6)
+            p0 = [ka0, max(k10_0, 1e-4), k12_0, k21_0, max(V1_0, 1e-3)]
+            param_names = ["ka", "k10", "k12", "k21", "V1"]
+
+        else:
+            raise ValueError("Unknown model")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if sigma is not None:
+                popt, _ = curve_fit(
+                    model_func, t, y, p0=p0, bounds=bounds,
+                    sigma=sigma, absolute_sigma=False, maxfev=20000
+                )
+            else:
+                popt, _ = curve_fit(
+                    model_func, t, y, p0=p0, bounds=bounds,
+                    maxfev=20000
+                )
+
+        pred = model_func(t, *popt)
+        params = dict(zip(param_names, popt))
+        return pred, popt, params
+
+    try:
+        pred, popt, params = fit_model(model, t, y, dose)
+    except Exception as e:
+        st.error(f"❌ Fitting failed: {e}")
+        st.info("Try a different model, change weighting, or check your data.")
+        st.stop()
+
+    residuals = y - pred
+    ss_res = float(np.sum(residuals ** 2))
+    n = len(y)
+    k_params = len(popt)
+    aic = n * np.log(ss_res / n) + 2 * k_params if ss_res > 0 else np.nan
+    bic = n * np.log(ss_res / n) + k_params * np.log(n) if ss_res > 0 else np.nan
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📊 Observed vs Predicted")
+        fig, ax = plt.subplots()
+        ax.plot(t, y, 'o', label='Observed')
+        ax.plot(t, pred, '-', label='Predicted')
+        ax.set_xlabel("Time (h)")
+        ax.set_ylabel("Concentration (mg/L)")
+        if use_log:
+            ymin = max(min(y.min(), pred.min()), 1e-6)
+            ax.set_ylim(bottom=ymin)
+            ax.set_yscale("log")
+        ax.legend()
+        st.pyplot(fig)
+
+    with col2:
+        st.subheader("🧮 Estimated Parameters")
+        param_units = {
+            "k10": "h⁻¹", "ka": "h⁻¹", "k": "h⁻¹",
+            "k12": "h⁻¹", "k21": "h⁻¹",
+            "V": "L", "V1": "L",
+        }
+        for kname, val in params.items():
+            unit = param_units.get(kname, "")
+            st.write(f"**{kname} ({unit})**: {val:.4f}")
+        st.write(f"**AIC**: {aic:.2f}")
+        st.write(f"**BIC**: {bic:.2f}")
+        st.write(f"**Weighting:** {weight_type}")
+
+    st.subheader("📉 Residual Analysis")
+    fig2, ax2 = plt.subplots(1, 2, figsize=(10, 4))
+    sns.histplot(residuals, kde=True, ax=ax2[0])
+    ax2[0].set_title("Residual Histogram")
+    ax2[1].scatter(pred, residuals)
+    ax2[1].axhline(0, color='gray', linestyle='--')
+    ax2[1].set_title("Residuals vs Fitted")
+    ax2[1].set_xlabel("Predicted")
+    ax2[1].set_ylabel("Residuals")
+    st.pyplot(fig2)
+
+    st.subheader("📥 Download Results")
+    df_out = df.copy()
+    df_out['Predicted'] = pred
+    df_out['Residuals'] = residuals
+    csv = df_out.to_csv(index=False)
+    st.download_button("📄 Download Results as CSV", csv, "pk_result.csv", "text/csv")
