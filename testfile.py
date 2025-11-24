@@ -12,6 +12,7 @@ Original file is located at
 KHU-PKMA Streamlit App
 - NCA: 원래 방식 유지
 - Compartment Model: 전부 ODE 기반 + PKSolver 스타일 초기값/Weight
+- ODE는 항상 t=0에서 Dose 투여 후 적분 → 지수함수 버전과 동일한 모델
 """
 
 import streamlit as st
@@ -79,7 +80,7 @@ else:
         st.warning("Please upload a CSV file or select example data.")
         st.stop()
 
-# 공통으로 쓰는 Dose 입력 (NCA/Compartment 둘 다 사용)
+# 공통 Dose 입력
 dose = st.sidebar.number_input("Dose (mg)", value=100.0, min_value=0.0, step=10.0)
 
 # ----------------------------- #
@@ -90,53 +91,141 @@ analysis_type = st.sidebar.radio(
 )
 
 # ----------------------------- #
-# ⚙️ ODE Model Functions
+# ⚙️ ODE Model Functions (항상 t=0에서 투여 후 적분)
 # ----------------------------- #
 
 def simulate_ode_iv(t, dose, k10, V):
-    """1C IV: dA/dt = -k10*A, C = A/V"""
+    """
+    1C IV: dA/dt = -k10*A, C = A/V
+    항상 t=0에서 A(0)=Dose 후, 관측시간 t에서 농도를 읽어옴
+    """
+    t = np.asarray(t, dtype=float)
+    unique_t, inverse_idx = np.unique(t, return_inverse=True)
+
+    # 내부 시간축: 항상 t=0 포함
+    if unique_t[0] > 0:
+        t_full = np.concatenate(([0.0], unique_t))
+        offset = 1  # unique_t는 t_full[1:]에 해당
+    else:
+        t_full = unique_t
+        offset = 0
+
     def ode_iv(A, tt):
         return -k10 * A
-    y0 = dose
-    A = odeint(ode_iv, y0, t).flatten()
-    return A / V
+
+    A_full = odeint(ode_iv, dose, t_full).flatten()
+
+    if offset == 1:
+        A_unique = A_full[1:]
+    else:
+        A_unique = A_full
+
+    conc_unique = A_unique / V
+    conc = conc_unique[inverse_idx]
+    return conc
 
 def simulate_ode_po(t, dose, ka, k, V):
-    """1C PO: A_gut, A_central"""
+    """
+    1C PO: A_gut, A_central
+    t=0에서 A_gut(0)=Dose, A_c(0)=0 후 적분
+    """
+    t = np.asarray(t, dtype=float)
+    unique_t, inverse_idx = np.unique(t, return_inverse=True)
+
+    if unique_t[0] > 0:
+        t_full = np.concatenate(([0.0], unique_t))
+        offset = 1
+    else:
+        t_full = unique_t
+        offset = 0
+
     def ode_po(y, tt):
         A_gut, A_c = y
         dA_gut = -ka * A_gut
         dA_c = ka * A_gut - k * A_c
         return [dA_gut, dA_c]
+
     y0 = [dose, 0.0]
-    result = odeint(ode_po, y0, t)
-    return result[:, 1] / V
+    result = odeint(ode_po, y0, t_full)
+
+    if offset == 1:
+        A_c_unique = result[1:, 1]
+    else:
+        A_c_unique = result[:, 1]
+
+    conc_unique = A_c_unique / V
+    conc = conc_unique[inverse_idx]
+    return conc
 
 def simulate_ode_two_comp_iv(t, dose, k10, k12, k21, V1):
-    """2C IV: A1, A2"""
+    """
+    2C IV: A1, A2
+    t=0에서 A1(0)=Dose, A2(0)=0 후 적분
+    """
+    t = np.asarray(t, dtype=float)
+    unique_t, inverse_idx = np.unique(t, return_inverse=True)
+
+    if unique_t[0] > 0:
+        t_full = np.concatenate(([0.0], unique_t))
+        offset = 1
+    else:
+        t_full = unique_t
+        offset = 0
+
     def model(y, tt):
         A1, A2 = y
         dA1dt = -k10 * A1 - k12 * A1 + k21 * A2
         dA2dt = k12 * A1 - k21 * A2
         return [dA1dt, dA2dt]
+
     y0 = [dose, 0.0]
-    result = odeint(model, y0, t)
-    return result[:, 0] / V1
+    result = odeint(model, y0, t_full)
+
+    if offset == 1:
+        A1_unique = result[1:, 0]
+    else:
+        A1_unique = result[:, 0]
+
+    conc_unique = A1_unique / V1
+    conc = conc_unique[inverse_idx]
+    return conc
 
 def simulate_ode_two_comp_po(t, dose, ka, k10, k12, k21, V1):
-    """2C PO: A_gut, A1, A2"""
+    """
+    2C PO: A_gut, A1, A2
+    t=0에서 A_gut(0)=Dose, A1(0)=0, A2(0)=0 후 적분
+    """
+    t = np.asarray(t, dtype=float)
+    unique_t, inverse_idx = np.unique(t, return_inverse=True)
+
+    if unique_t[0] > 0:
+        t_full = np.concatenate(([0.0], unique_t))
+        offset = 1
+    else:
+        t_full = unique_t
+        offset = 0
+
     def model(y, tt):
         A_gut, A1, A2 = y
         dA_gut = -ka * A_gut
         dA1dt = ka * A_gut - k10 * A1 - k12 * A1 + k21 * A2
         dA2dt = k12 * A1 - k21 * A2
         return [dA_gut, dA1dt, dA2dt]
+
     y0 = [dose, 0.0, 0.0]
-    result = odeint(model, y0, t)
-    return result[:, 1] / V1
+    result = odeint(model, y0, t_full)
+
+    if offset == 1:
+        A1_unique = result[1:, 1]
+    else:
+        A1_unique = result[:, 1]
+
+    conc_unique = A1_unique / V1
+    conc = conc_unique[inverse_idx]
+    return conc
 
 # ----------------------------- #
-# NCA (원래 로직, 단 dose를 인자로 받도록 변경)
+# NCA (원래 로직, dose만 인자로 받도록)
 # ----------------------------- #
 def perform_nca(df, terminal_indices, dose):
     t = df['time'].values.astype(float)
@@ -176,7 +265,7 @@ def show_model_info(model):
         try:
             st.image(path, caption=caption, use_container_width=True)
         except Exception:
-            pass  # 이미지 없으면 그냥 넘어감
+            pass  # 이미지 파일 없으면 무시
 
     if model == "1 Compartment IV":
         safe_image("images/1CIV.png", "1-Compartment IV Model")
@@ -282,7 +371,7 @@ if analysis_type == "NCA Analysis":
     st.pyplot(fig)
 
 # ----------------------------- #
-# 🧮 Compartment Model Analysis (ODE + PKSolver 스타일)
+# 🧮 Compartment Model Analysis
 # ----------------------------- #
 elif analysis_type == "Compartment Model Analysis":
     st.subheader("🧮 Compartment Model Analysis")
