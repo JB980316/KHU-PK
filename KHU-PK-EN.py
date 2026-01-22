@@ -214,7 +214,7 @@ def perform_nca(df, terminal_indices, dose):
     c = df['conc'].values.astype(float)
 
     # AUClast
-    auc = np.trapz(c, t)
+    auc = np.trapezoid(c, t)
 
     # terminal 구간 선택
     if terminal_indices is not None and len(terminal_indices) >= 2:
