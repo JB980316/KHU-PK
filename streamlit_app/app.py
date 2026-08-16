@@ -175,7 +175,7 @@ if mode == "PK/PD Simulation":
 
             fig = pkpd_core.plot_pkpd(
                 results,
-                title_suffix="Streamlit"
+                title_suffix=""
             )
 
             st.pyplot(fig)
