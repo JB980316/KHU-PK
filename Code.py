@@ -63,7 +63,7 @@ def validate_parameters(
     """
     Validate inputs and compute ke = CL / V.
     Raises ValueError with informative messages for invalid inputs.
-    Returns computed ke and the negativity tolerance (abs).
+    Returns computed ke and the negativity tolerance (abs, in mg).
     """
     # Basic numeric checks
     params = dict(Dose=Dose, F=F, ka=ka, V=V, CL=CL, EC50=EC50, gamma=gamma, Emax=Emax, E0=E0, t_start=t_start, t_end=t_end)
@@ -93,15 +93,18 @@ def validate_parameters(
     if t_end <= t_start:
         raise ValueError("t_end must be greater than t_start.")
     if t_eval is not None:
-        t_eval = np.asarray(t_eval, dtype=float)
-        if t_eval.ndim != 1:
+        t_eval_arr = np.asarray(t_eval, dtype=float)
+        if t_eval_arr.ndim != 1:
             raise ValueError("t_eval must be a 1-D sequence of times.")
-        if not np.all(np.isfinite(t_eval)):
+        if t_eval_arr.size < 1:
+            raise ValueError("t_eval must have at least 1 element.")
+        if not np.all(np.isfinite(t_eval_arr)):
             raise ValueError("All t_eval values must be finite.")
-        if not (t_eval[0] >= t_start - 1e-14 and t_eval[-1] <= t_end + 1e-14):
+        if not (t_eval_arr[0] >= t_start - 1e-14 and t_eval_arr[-1] <= t_end + 1e-14):
             raise ValueError("t_eval values must lie within [t_start, t_end].")
-        if not np.all(np.diff(t_eval) >= 0):
-            raise ValueError("t_eval must be ordered non-decreasing.")
+        if t_eval_arr.size > 1:
+            if not np.all(np.diff(t_eval_arr) > 0):
+                raise ValueError("t_eval must be strictly increasing (no duplicates).")
     # compute ke and compare if supplied
     ke = float(CL / V)
     if ke_supplied is not None:
@@ -115,6 +118,24 @@ def validate_parameters(
     # negativity tolerance relative to problem scale (amount units: mg)
     neg_tol = max(1e-12, 1e-8 * max(1.0, float(Dose)))
     return ke, neg_tol
+
+
+def validate_solver_controls(
+    rtol: float,
+    atol: float,
+) -> None:
+    """
+    Validate that ODE solver tolerances are scalar, finite, and strictly positive.
+    Raises ValueError for invalid inputs.
+    """
+    if not _is_finite_number(rtol):
+        raise ValueError(f"rtol must be finite; got {rtol!r}.")
+    if not _is_finite_number(atol):
+        raise ValueError(f"atol must be finite; got {atol!r}.")
+    if rtol <= 0.0:
+        raise ValueError(f"rtol must be > 0; got {rtol}.")
+    if atol <= 0.0:
+        raise ValueError(f"atol must be > 0; got {atol}.")
 
 
 # -------------------------
@@ -135,6 +156,103 @@ def pk_ode(t: float, y: Sequence[float], ka: float, ke: float, F: float) -> np.n
 
 
 # -------------------------
+# Analytical PK reference functions
+# -------------------------
+def analytical_pk_unequal_rates(
+    tau: np.ndarray,
+    Dose: float,
+    F: float,
+    ka: float,
+    ke: float,
+    V: float,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Analytical solution for one-compartment oral PK with first-order absorption (ka != ke).
+
+    Parameters
+    ----------
+    tau : ndarray
+        Elapsed time (t - t_start), shape (n,).
+    Dose : float
+        Single oral dose (mg).
+    F : float
+        Bioavailability (dimensionless, 0..1).
+    ka : float
+        Absorption rate constant (1/h).
+    ke : float
+        Elimination rate constant (1/h).
+    V : float
+        Volume of distribution (L).
+
+    Returns
+    -------
+    A_gut : ndarray
+        Amount in gut compartment (mg).
+    A_central : ndarray
+        Amount in central compartment (mg).
+    concentration : ndarray
+        Plasma concentration (mg/L).
+
+    Notes
+    -----
+    Uses the closed-form solution for ka != ke:
+      A_gut(t) = Dose * exp(-ka * tau)
+      A_central(t) = F * Dose * ka / (ka - ke) * (exp(-ke * tau) - exp(-ka * tau))
+    """
+    tau = np.asarray(tau, dtype=float)
+    A_gut = Dose * np.exp(-ka * tau)
+    rate_diff = ka - ke
+    A_central = F * Dose * ka / rate_diff * (np.exp(-ke * tau) - np.exp(-ka * tau))
+    concentration = A_central / V
+    return A_gut, A_central, concentration
+
+
+def analytical_pk_equal_rates(
+    tau: np.ndarray,
+    Dose: float,
+    F: float,
+    k: float,
+    V: float,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Analytical solution for one-compartment oral PK with first-order absorption (ka == ke == k).
+
+    Parameters
+    ----------
+    tau : ndarray
+        Elapsed time (t - t_start), shape (n,).
+    Dose : float
+        Single oral dose (mg).
+    F : float
+        Bioavailability (dimensionless, 0..1).
+    k : float
+        Rate constant (ka == ke, 1/h).
+    V : float
+        Volume of distribution (L).
+
+    Returns
+    -------
+    A_gut : ndarray
+        Amount in gut compartment (mg).
+    A_central : ndarray
+        Amount in central compartment (mg).
+    concentration : ndarray
+        Plasma concentration (mg/L).
+
+    Notes
+    -----
+    Uses the limiting analytical solution as ka -> ke:
+      A_gut(t) = Dose * exp(-k * tau)
+      A_central(t) = F * Dose * k * tau * exp(-k * tau)
+    """
+    tau = np.asarray(tau, dtype=float)
+    A_gut = Dose * np.exp(-k * tau)
+    A_central = F * Dose * k * tau * np.exp(-k * tau)
+    concentration = A_central / V
+    return A_gut, A_central, concentration
+
+
+# -------------------------
 # PD function: stimulatory sigmoid Emax
 # -------------------------
 def sigmoid_emax(
@@ -147,11 +265,45 @@ def sigmoid_emax(
 ) -> np.ndarray:
     """
     Compute E(C) = E0 + Emax * C^gamma / (EC50^gamma + C^gamma).
+    
     Works with scalars or arrays (NumPy). Safely handles tiny negative concentrations
     by clipping to zero if abs(value) <= conc_neg_tol; raises if more negative.
+    
+    Uses a numerically stable formulation based on the dimensionless ratio x = C / EC50:
+      - For x <= 1: z = x^gamma; frac = z / (1 + z)
+      - For x > 1: z = x^(-gamma); frac = 1 / (1 + z)
+    
+    This avoids unnecessary overflow when computing large powers.
+    
+    Parameters
+    ----------
+    concentration : array-like
+        Plasma concentration (mg/L), scalar or ndarray.
+    E0 : float
+        Baseline effect.
+    Emax : float
+        Maximum effect (must be >= 0).
+    EC50 : float
+        Concentration producing 50% effect (must be > 0, mg/L).
+    gamma : float
+        Hill coefficient (must be > 0).
+    conc_neg_tol : float, optional
+        Tolerance for clipping tiny negative concentrations to zero (mg/L).
+        Default: 0.0.
+    
+    Returns
+    -------
+    effect : ndarray
+        Pharmacodynamic effect (same shape as concentration).
+    
+    Raises
+    ------
+    ValueError
+        If conc_neg_tol < 0, or if concentration has values more negative than -conc_neg_tol.
     """
     C = np.asarray(concentration, dtype=float)
-    # Handle tiny negative concentrations from numerical error
+    
+    # Validate and handle tiny negative concentrations
     if conc_neg_tol < 0:
         raise ValueError("conc_neg_tol must be nonnegative.")
     neg_mask = C < 0.0
@@ -161,15 +313,35 @@ def sigmoid_emax(
             raise ValueError(
                 f"Concentration has values more negative ({max_neg:.3g}) than allowed tolerance {-conc_neg_tol:.3g}."
             )
-        # clip tiny negatives to zero for stable fractional powers
+        # Clip tiny negatives to zero for stable fractional powers
         C = np.maximum(C, 0.0)
-    # Now compute Hill fraction
-    num = np.power(C, gamma)
-    denom = np.power(EC50, gamma) + num
-    # Avoid division by zero (EC50>0 ensures denom>0)
+    
+    # Validate PD parameters
+    if EC50 <= 0:
+        raise ValueError(f"EC50 must be > 0; got {EC50}.")
+    if gamma <= 0:
+        raise ValueError(f"gamma must be > 0; got {gamma}.")
+    
+    # Compute dimensionless concentration ratio
+    x = C / EC50
+    
+    # Numerically stable Hill fraction computation
+    # For x <= 1: z = x^gamma, frac = z / (1 + z)
+    # For x > 1: z = x^(-gamma), frac = 1 / (1 + z)
     frac = np.zeros_like(C, dtype=float)
-    # denom > 0 guaranteed because EC50>0
-    frac = num / denom
+    
+    # Case 1: x <= 1
+    mask_low = x <= 1.0
+    if np.any(mask_low):
+        z_low = np.power(x[mask_low], gamma)
+        frac[mask_low] = z_low / (1.0 + z_low)
+    
+    # Case 2: x > 1
+    mask_high = x > 1.0
+    if np.any(mask_high):
+        z_high = np.power(x[mask_high], -gamma)
+        frac[mask_high] = 1.0 / (1.0 + z_high)
+    
     return float(E0) + float(Emax) * frac
 
 
@@ -216,6 +388,9 @@ def simulate_pkpd(
         t_eval=t_eval,
         ke_supplied=ke_supplied,
     )
+    
+    # Validate solver controls
+    validate_solver_controls(rtol=rtol, atol=atol)
 
     # Build evaluation grid if not provided: spacing 0.05 h by default
     if t_eval is None:
@@ -233,8 +408,18 @@ def simulate_pkpd(
         max_step_by_rate = np.inf
     else:
         max_step_by_rate = 0.1 / fastest_rate  # 0.1 of the fastest timescale
-    eval_spacing = np.min(np.diff(t_eval)) if t_eval.size > 1 else (t_end - t_start)
+    
+    # Handle single-element t_eval
+    if t_eval.size == 1:
+        eval_spacing = np.inf
+    else:
+        eval_spacing = float(np.min(np.diff(t_eval)))
+    
     max_step = float(min(eval_spacing, max_step_by_rate))
+    
+    # Ensure max_step is finite and positive
+    if not np.isfinite(max_step) or max_step <= 0:
+        max_step = (t_end - t_start) / 100.0
 
     # initial conditions according to base dosing convention:
     # A_gut(0) = Dose, A_central(0) = 0
@@ -399,17 +584,34 @@ if __name__ == "__main__":
     ke_expected = CL / V
     assert np.isclose(ke_computed, ke_expected, rtol=KE_RTOL, atol=KE_ATOL), "ke inconsistency."
 
-    # PD checks
+    # PD checks: finite-concentration validation (not asymptotic)
     C_zero = 0.0
     C_half = EC50
     C_high = 1000.0 * EC50
-    tol_pd = 1e-9
+    
     E_at_0 = sigmoid_emax(np.array([C_zero]), E0=E0, Emax=Emax, EC50=EC50, gamma=gamma)[0]
     E_at_half = sigmoid_emax(np.array([C_half]), E0=E0, Emax=Emax, EC50=EC50, gamma=gamma)[0]
     E_at_high = sigmoid_emax(np.array([C_high]), E0=E0, Emax=Emax, EC50=EC50, gamma=gamma)[0]
+    
+    # Baseline check
     assert np.allclose(E_at_0, E0, rtol=1e-12, atol=1e-12), "PD check failed at C=0."
+    
+    # Half-maximal effect check
     assert np.allclose(E_at_half, E0 + Emax / 2.0, rtol=1e-8, atol=1e-12), "PD check failed at C=EC50."
-    assert np.isclose(E_at_high, E0 + Emax, rtol=1e-6, atol=1e-12), "PD high-concentration limit check failed."
+    
+    # Finite high-concentration check: compare to exact finite analytical value, not asymptote
+    ratio = C_high / EC50
+    expected_high = E0 + Emax * ratio**gamma / (1.0 + ratio**gamma)
+    assert np.allclose(E_at_high, expected_high, rtol=1e-12, atol=1e-12), \
+        f"PD check failed at C=1000*EC50: computed {E_at_high:.8g}, expected {expected_high:.8g}."
+    
+    # Asymptotic behavior: verify finite effect < asymptote and residual is positive
+    asymptotic_effect = E0 + Emax
+    residual = asymptotic_effect - E_at_high
+    assert residual > 0, f"Residual should be positive; got {residual:.3g}."
+    expected_residual = Emax / (1.0 + ratio**gamma)
+    assert np.allclose(residual, expected_residual, rtol=1e-12, atol=1e-12), \
+        f"Asymptotic residual mismatch: computed {residual:.8g}, expected {expected_residual:.8g}."
 
     # State checks
     assert np.all(np.isfinite(results["A_gut"])) and np.all(np.isfinite(results["A_central"])), "Non-finite states."
@@ -418,10 +620,21 @@ if __name__ == "__main__":
     assert np.all(results["concentration"] >= -1e-14)
 
     # Print concise diagnostics
+    print("=" * 70)
     print("Simulation completed successfully.")
+    print("=" * 70)
     print(f"ke (computed) = {ke_computed:.8g} 1/h, ke (CL/V) = {ke_expected:.8g} 1/h")
-    print(f"PD checks: E(0)={E_at_0:.6g} (expected {E0}), E(EC50)={E_at_half:.6g} (expected {E0 + Emax/2})")
-    print(f"Effect at 1000*EC50 ≈ {E_at_high:.6g} (expected {E0 + Emax})")
+    print()
+    print("PD Validation:")
+    print(f"  E(0) = {E_at_0:.6g} (expected {E0})")
+    print(f"  E(EC50) = {E_at_half:.6g} (expected {E0 + Emax/2})")
+    print(f"  E(1000*EC50) = {E_at_high:.8g}")
+    print(f"    Exact finite analytical = {expected_high:.8g}")
+    print(f"    Asymptotic limit (E0 + Emax) = {asymptotic_effect:.8g}")
+    print(f"    Residual from asymptote = {residual:.8g}")
+    print()
+    print("All validation checks passed.")
+    print("=" * 70)
 
     # Plot results
     plot_pkpd(results, title_suffix="(synthetic demonstration)")
