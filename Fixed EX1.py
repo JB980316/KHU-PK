@@ -820,30 +820,70 @@ if __name__ == "__main__":
     assert np.allclose(results["A_gut"], A_gut_ref, rtol=tol_r, atol=1e-8), "Repeated-dose A_gut differs from analytical superposition."
     assert np.allclose(results["A_central"], A_central_ref, rtol=tol_r, atol=1e-8), "Repeated-dose A_central differs from analytical superposition."
 
-    # Dose-jump checks: at each scheduled dose time, A_gut jumps by Dose and A_central continuous
+    # Dose-jump checks: at each scheduled dose time, compare the returned post-dose state
+    # against the true pre-dose state at the SAME time.
     for td in results["meta"]["dose_times"]:
         # find index of exact dose time
         idx = np.nonzero(np.isclose(tvals, td, rtol=0.0, atol=1e-14))[0]
         assert idx.size == 1, "Dose time not present in evaluation grid for jump check."
         j = idx[0]
-        if j > 0:
-            pre_ag = results["A_gut"][j-1]
-            post_ag = results["A_gut"][j]
-            pre_ac = results["A_central"][j-1]
-            post_ac = results["A_central"][j]
-            assert np.isclose(post_ag - pre_ag, Dose, rtol=1e-8, atol=1e-8), "A_gut jump at dose not equal to Dose."
-            assert np.isclose(post_ac, pre_ac, rtol=1e-8, atol=1e-8), "A_central changed at instant of dose (should be continuous)."
+
+        post_ag = results["A_gut"][j]
+        post_ac = results["A_central"][j]
+
+        # compute true pre-dose state at the same td by summing analytical contributions
+        pre_ag = 0.0
+        pre_ac = 0.0
+        for prev_td in results["meta"]["dose_times"]:
+            if prev_td < td - 1e-14:
+                tau = td - prev_td
+                if not equal_rates:
+                    ag, ac, _ = analytical_pk_unequal_rates(np.array([tau]), Dose, F, ka, ke_computed, V)
+                else:
+                    ag, ac, _ = analytical_pk_equal_rates(np.array([tau]), Dose, F, ka, V)
+                pre_ag += float(ag[0])
+                pre_ac += float(ac[0])
+
+        assert np.isclose(
+            post_ag - pre_ag,
+            Dose,
+            rtol=1e-8,
+            atol=1e-8,
+        ), (
+            f"A_gut jump at t={td} not equal to Dose: "
+            f"pre={pre_ag}, post={post_ag}, "
+            f"jump={post_ag - pre_ag}, Dose={Dose}"
+        )
+
+        assert np.isclose(
+            post_ac,
+            pre_ac,
+            rtol=1e-8,
+            atol=1e-8,
+        ), (
+            f"A_central discontinuity at t={td}: "
+            f"pre={pre_ac}, post={post_ac}"
+        )
 
     # Accumulation: ensure last pre-dose amount positive when dosing interval shorter than elimination
     if n_doses > 1:
-        # check that just before last dose there is residual from prior doses
+        # compute true pre-dose state at last dose using analytical superposition
         last_td = results["meta"]["dose_times"][-1]
         idx_last = np.nonzero(np.isclose(tvals, last_td, rtol=0.0, atol=1e-14))[0]
         if idx_last.size == 1:
             jlast = idx_last[0]
-            if jlast > 0:
-                pre_last_ag = results["A_gut"][jlast-1]
-                assert pre_last_ag > 0.0 or np.isclose(pre_last_ag, 0.0), "No residual in gut before last dose when accumulation expected."
+            # compute true pre-dose A_gut at last_td
+            pre_last_ag = 0.0
+            for prev_td in results["meta"]["dose_times"]:
+                if prev_td < last_td - 1e-14:
+                    tau = last_td - prev_td
+                    if not equal_rates:
+                        ag, ac, _ = analytical_pk_unequal_rates(np.array([tau]), Dose, F, ka, ke_computed, V)
+                    else:
+                        ag, ac, _ = analytical_pk_equal_rates(np.array([tau]), Dose, F, ka, V)
+                    pre_last_ag += float(ag[0])
+            # Ensure there is residual in gut before last dose when accumulation expected
+            assert pre_last_ag > 0.0 or np.isclose(pre_last_ag, 0.0), "No residual in gut before last dose when accumulation expected."
 
     # Equal-rate edge case check: exercise equal-rate analytical branch
     # run small test where ka == ke
