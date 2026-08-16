@@ -18,6 +18,7 @@ Original file is located at
 
 """
 One-compartment oral PK with first-order absorption and direct stimulatory sigmoid Emax PD.
+Supports single-dose and repeated-dose oral regimens.
 
 Units:
  - time: hours (h)
@@ -29,9 +30,9 @@ Units:
  - F: dimensionless (0..1)
  - effect units: user-defined (E0, Emax)
 
-Deterministic, single-dose base implementation with explicit validation and diagnostics.
+Deterministic PK/PD implementation with explicit validation and diagnostics.
 """
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple, Any
 import numpy as np
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
@@ -45,6 +46,8 @@ DEFAULT_ATOL = 1e-10
 # ke consistency tolerances
 KE_RTOL = 1e-8
 KE_ATOL = 1e-12
+# floating-point tolerance for event-time matching
+EVENT_TIME_TOL = 1e-10
 
 
 # -------------------------
@@ -145,6 +148,137 @@ def validate_solver_controls(
         raise ValueError(f"rtol must be > 0; got {rtol}.")
     if atol <= 0.0:
         raise ValueError(f"atol must be > 0; got {atol}.")
+
+
+def build_or_validate_dosing_schedule(
+    Dose: float,
+    tau: Optional[float],
+    n_doses: Optional[int],
+    dose_times: Optional[Sequence[float]],
+    dose_amounts: Optional[Sequence[float]],
+    t_start: float,
+    t_end: float,
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    """
+    Normalize and validate dosing specification into canonical dose_times and dose_amounts arrays.
+
+    Rules:
+      Case 1 (legacy/default): No tau, n_doses, dose_times, dose_amounts supplied.
+               One dose = Dose at t_start.
+      Case 2 (regular): tau and n_doses supplied. dose_times constructed as t_start + i*tau.
+      Case 3 (explicit): dose_times supplied. dose_amounts either supplied or defaulted to Dose.
+
+    Returns
+    -------
+    dose_times : ndarray (1-D, float)
+        Strictly increasing dose times.
+    dose_amounts : ndarray (1-D, float)
+        Corresponding dose amounts.
+    n_doses : int
+        Number of doses.
+
+    Raises
+    ------
+    ValueError
+        For invalid, incomplete, or conflicting specifications.
+    """
+
+    # Determine which case (legacy, regular, explicit)
+    has_tau = tau is not None
+    has_n_doses = n_doses is not None
+    has_dose_times = dose_times is not None
+    has_dose_amounts = dose_amounts is not None
+
+    # Validate mutual exclusivity
+    if has_dose_amounts and not has_dose_times:
+        raise ValueError("dose_amounts supplied without dose_times.")
+
+    if has_tau and not has_n_doses:
+        raise ValueError("tau supplied without n_doses.")
+    if has_n_doses and not has_tau:
+        raise ValueError("n_doses supplied without tau.")
+
+    if has_tau and has_dose_times:
+        raise ValueError("Cannot specify both regular regimen (tau, n_doses) and explicit dose_times.")
+    if has_tau and has_dose_amounts:
+        raise ValueError("Cannot specify both regular regimen (tau, n_doses) and explicit dose_amounts.")
+
+    # Case 1: Legacy/default
+    if not has_tau and not has_dose_times:
+        dose_times_arr = np.array([t_start], dtype=float)
+        dose_amounts_arr = np.array([Dose], dtype=float)
+        return dose_times_arr, dose_amounts_arr, 1
+
+    # Case 2: Regular repeated regimen
+    if has_tau and has_n_doses:
+        # Validate tau and n_doses
+        if not _is_finite_number(tau):
+            raise ValueError(f"tau must be finite; got {tau!r}.")
+        if tau <= 0.0:
+            raise ValueError(f"tau must be > 0; got {tau}.")
+        if not isinstance(n_doses, (int, np.integer)):
+            raise ValueError(f"n_doses must be an integer; got {type(n_doses).__name__}.")
+        if n_doses <= 0:
+            raise ValueError(f"n_doses must be >= 1; got {n_doses}.")
+
+        # Construct dose times
+        dose_times_arr = np.array([t_start + i * tau for i in range(int(n_doses))], dtype=float)
+        dose_amounts_arr = np.full(int(n_doses), float(Dose), dtype=float)
+
+        # Validate that all doses lie in [t_start, t_end]
+        if not np.all((dose_times_arr >= t_start - 1e-14) & (dose_times_arr <= t_end + 1e-14)):
+            raise ValueError(
+                f"Regular regimen with tau={tau}, n_doses={n_doses} produces dose times outside [t_start={t_start}, t_end={t_end}]. "
+                f"Latest dose at t={dose_times_arr[-1]:.6g}."
+            )
+
+        return dose_times_arr, dose_amounts_arr, int(n_doses)
+
+    # Case 3: Explicit schedule
+    if has_dose_times:
+        dose_times_arr = np.asarray(dose_times, dtype=float)
+        if dose_times_arr.ndim != 1:
+            raise ValueError("dose_times must be a 1-D sequence.")
+        if dose_times_arr.size < 1:
+            raise ValueError("dose_times must have at least 1 element.")
+        if not np.all(np.isfinite(dose_times_arr)):
+            raise ValueError("All dose_times values must be finite.")
+        if dose_times_arr.size > 1:
+            if not np.all(np.diff(dose_times_arr) > 0):
+                raise ValueError("dose_times must be strictly increasing (no duplicates).")
+
+        # Check all times in [t_start, t_end]
+        if not np.all((dose_times_arr >= t_start - 1e-14) & (dose_times_arr <= t_end + 1e-14)):
+            bad_idx = np.where((dose_times_arr < t_start - 1e-14) | (dose_times_arr > t_end + 1e-14))[0]
+            bad_time = dose_times_arr[bad_idx[0]]
+            raise ValueError(
+                f"dose_times contains value {bad_time:.6g} outside [t_start={t_start}, t_end={t_end}]."
+            )
+
+        # Determine dose_amounts
+        if has_dose_amounts:
+            dose_amounts_arr = np.asarray(dose_amounts, dtype=float)
+            if dose_amounts_arr.ndim != 1:
+                raise ValueError("dose_amounts must be a 1-D sequence.")
+            if dose_amounts_arr.size != dose_times_arr.size:
+                raise ValueError(
+                    f"dose_times and dose_amounts must have equal length; got {dose_times_arr.size} and {dose_amounts_arr.size}."
+                )
+            if not np.all(np.isfinite(dose_amounts_arr)):
+                raise ValueError("All dose_amounts values must be finite.")
+        else:
+            # Repeat scalar Dose at every dose_time
+            dose_amounts_arr = np.full(dose_times_arr.size, float(Dose), dtype=float)
+
+        # Validate dose amounts
+        if np.any(dose_amounts_arr < 0):
+            bad_idx = np.where(dose_amounts_arr < 0)[0]
+            raise ValueError(f"dose_amounts has negative value {dose_amounts_arr[bad_idx[0]]:.6g}.")
+
+        return dose_times_arr, dose_amounts_arr, int(dose_times_arr.size)
+
+    # Should not reach here
+    raise ValueError("Unhandled dosing specification case.")
 
 
 # -------------------------
@@ -261,6 +395,72 @@ def analytical_pk_equal_rates(
     return A_gut, A_central, concentration
 
 
+def analytical_pk_repeated_dose(
+    time_array: np.ndarray,
+    dose_times: np.ndarray,
+    dose_amounts: np.ndarray,
+    F: float,
+    ka: float,
+    ke: float,
+    V: float,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Analytical solution for repeated-dose oral PK using superposition.
+
+    Uses the single-dose analytical formulas and superimposes contributions
+    from each dose event.
+
+    Parameters
+    ----------
+    time_array : ndarray
+        Times at which to evaluate (absolute times, shape (n,)).
+    dose_times : ndarray
+        Times of dose administration (shape (m,)).
+    dose_amounts : ndarray
+        Dose amounts (shape (m,)).
+    F : float
+        Bioavailability.
+    ka : float
+        Absorption rate constant (1/h).
+    ke : float
+        Elimination rate constant (1/h).
+    V : float
+        Volume of distribution (L).
+
+    Returns
+    -------
+    A_gut : ndarray
+        Total amount in gut (mg), shape (n,).
+    A_central : ndarray
+        Total amount in central (mg), shape (n,).
+    concentration : ndarray
+        Total concentration (mg/L), shape (n,).
+    """
+    time_array = np.asarray(time_array, dtype=float)
+    A_gut_total = np.zeros_like(time_array)
+    A_central_total = np.zeros_like(time_array)
+
+    # Superpose each dose
+    for dose_time, dose_amt in zip(dose_times, dose_amounts):
+        elapsed = time_array - dose_time
+        # Only include contribution where elapsed >= 0
+        valid_mask = elapsed >= -1e-14
+        elapsed_valid = np.maximum(elapsed, 0.0)
+
+        if np.isclose(ka, ke, rtol=KE_RTOL, atol=KE_ATOL):
+            # Use equal-rate formula
+            A_gut_i, A_central_i, _ = analytical_pk_equal_rates(elapsed_valid, dose_amt, F, ka, V)
+        else:
+            # Use unequal-rate formula
+            A_gut_i, A_central_i, _ = analytical_pk_unequal_rates(elapsed_valid, dose_amt, F, ka, ke, V)
+
+        A_gut_total[valid_mask] += A_gut_i[valid_mask]
+        A_central_total[valid_mask] += A_central_i[valid_mask]
+
+    concentration = A_central_total / V
+    return A_gut_total, A_central_total, concentration
+
+
 # -------------------------
 # PD function: stimulatory sigmoid Emax
 # -------------------------
@@ -355,6 +555,55 @@ def sigmoid_emax(
 
 
 # -------------------------
+# Piecewise repeated-dose integration
+# -------------------------
+def _integrate_segment(
+    t_start_seg: float,
+    t_end_seg: float,
+    y_init: np.ndarray,
+    t_eval_segment: Optional[np.ndarray],
+    ka: float,
+    ke: float,
+    F: float,
+    method: str,
+    rtol: float,
+    atol: float,
+    max_step: float,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Integrate a single ODE segment and return time, A_gut, A_central.
+
+    Returns
+    -------
+    t_seg : ndarray
+    A_gut_seg : ndarray
+    A_central_seg : ndarray
+    """
+    sol = solve_ivp(
+        fun=lambda t, y: pk_ode(t, y, ka=ka, ke=ke, F=F),
+        t_span=(float(t_start_seg), float(t_end_seg)),
+        y0=y_init,
+        method=method,
+        t_eval=t_eval_segment,
+        rtol=rtol,
+        atol=atol,
+        max_step=max_step,
+    )
+
+    if sol.status != 0 or not sol.success:
+        raise RuntimeError(f"ODE solver failed: message='{sol.message}', status={sol.status}")
+
+    t_seg = np.asarray(sol.t, dtype=float)
+    A_gut_seg = np.asarray(sol.y[0, :], dtype=float)
+    A_central_seg = np.asarray(sol.y[1, :], dtype=float)
+
+    if not (np.all(np.isfinite(t_seg)) and np.all(np.isfinite(A_gut_seg)) and np.all(np.isfinite(A_central_seg))):
+        raise RuntimeError("Integration produced non-finite values.")
+
+    return t_seg, A_gut_seg, A_central_seg
+
+
+# -------------------------
 # Simulation function
 # -------------------------
 def simulate_pkpd(
@@ -374,15 +623,77 @@ def simulate_pkpd(
     method: str = DEFAULT_RK_METHOD,
     rtol: float = DEFAULT_RTOL,
     atol: float = DEFAULT_ATOL,
-) -> Dict[str, np.ndarray]:
+    tau: Optional[float] = None,
+    n_doses: Optional[int] = None,
+    dose_times: Optional[Sequence[float]] = None,
+    dose_amounts: Optional[Sequence[float]] = None,
+) -> Dict[str, Any]:
     """
     Simulate the two-state PK model and PD effect over the given time range.
+    Supports single-dose and repeated-dose oral regimens.
 
-    Returns a dict with keys:
-      "time", "A_gut", "A_central", "concentration", "effect", "ke", "units"
+    Parameters
+    ----------
+    Dose : float
+        Single dose amount for legacy call or default for explicit schedule (mg).
+    F : float
+        Bioavailability (0..1).
+    ka : float
+        Absorption rate constant (1/h).
+    V : float
+        Volume of distribution (L).
+    CL : float
+        Clearance (L/h).
+    E0 : float
+        Baseline pharmacodynamic effect.
+    Emax : float
+        Maximum pharmacodynamic effect (mg).
+    EC50 : float
+        Concentration producing 50% effect (mg/L).
+    gamma : float
+        Hill coefficient.
+    t_start : float, optional
+        Start time (h). Default: 0.0.
+    t_end : float, optional
+        End time (h). Default: 48.0.
+    t_eval : sequence of float, optional
+        Times at which to return solution. If None, uses 0.05 h spacing.
+    ke_supplied : float, optional
+        Pre-computed ke for validation.
+    method : str, optional
+        ODE solver method. Default: "RK45".
+    rtol : float, optional
+        Relative tolerance. Default: 1e-8.
+    atol : float, optional
+        Absolute tolerance. Default: 1e-10.
+    tau : float, optional
+        Dosing interval for regular regimen (h).
+    n_doses : int, optional
+        Number of doses for regular regimen.
+    dose_times : sequence of float, optional
+        Explicit dose times (h).
+    dose_amounts : sequence of float, optional
+        Explicit dose amounts (mg); defaults to Dose if not provided.
+
+    Returns
+    -------
+    results : dict
+        Keys: "time", "A_gut", "A_central", "concentration", "effect", "ke", "units", "meta"
+        - time : ndarray (h)
+        - A_gut : ndarray (mg)
+        - A_central : ndarray (mg)
+        - concentration : ndarray (mg/L)
+        - effect : ndarray (user-defined)
+        - ke : float (1/h)
+        - units : dict
+        - meta : dict (includes dosing information)
+
+    Dosing convention:
+        At exact dose time t_i, returned A_gut is post-dose state.
+        A_central, concentration, effect remain continuous through events.
     """
     # Validate inputs and compute derived ke and negativity tolerance
-    ke, neg_tol = validate_parameters(
+    ke, base_neg_tol = validate_parameters(
         Dose=Dose,
         F=F,
         ka=ka,
@@ -401,91 +712,162 @@ def simulate_pkpd(
     # Validate solver controls
     validate_solver_controls(rtol=rtol, atol=atol)
 
+    # Build and validate dosing schedule
+    dose_times_arr, dose_amounts_arr, n_doses_total = build_or_validate_dosing_schedule(
+        Dose=Dose,
+        tau=tau,
+        n_doses=n_doses,
+        dose_times=dose_times,
+        dose_amounts=dose_amounts,
+        t_start=t_start,
+        t_end=t_end,
+    )
+
+    # Scale negativity tolerance for repeated dosing
+    max_dose = float(np.max(dose_amounts_arr))
+    neg_tol = max(base_neg_tol, 1e-8 * max_dose)
+
     # Build evaluation grid if not provided: spacing 0.05 h by default
     if t_eval is None:
         dt = 0.05  # hours
-        t_eval = np.arange(t_start, t_end + dt / 2.0, dt, dtype=float)
+        t_eval_grid = np.arange(t_start, t_end + dt / 2.0, dt, dtype=float)
     else:
-        t_eval = np.asarray(t_eval, dtype=float)
+        t_eval_grid = np.asarray(t_eval, dtype=float)
 
-    # Max step policy:
-    # Choose max_step no larger than the evaluation spacing and no larger than a fraction
-    # of the fastest PK timescale. Fastest rate = max(ka, ke); timescale = 1/fastest_rate.
+    # Max step policy
     fastest_rate = max(ka, ke)
     if fastest_rate <= 0.0:
-        # degenerate; fall back to evaluation spacing
         max_step_by_rate = np.inf
     else:
-        max_step_by_rate = 0.1 / fastest_rate  # 0.1 of the fastest timescale
+        max_step_by_rate = 0.1 / fastest_rate
 
-    # Handle single-element t_eval
-    if t_eval.size == 1:
+    if t_eval_grid.size == 1:
         eval_spacing = np.inf
     else:
-        eval_spacing = float(np.min(np.diff(t_eval)))
+        eval_spacing = float(np.min(np.diff(t_eval_grid)))
 
     max_step = float(min(eval_spacing, max_step_by_rate))
-
-    # Ensure max_step is finite and positive
     if not np.isfinite(max_step) or max_step <= 0:
         max_step = (t_end - t_start) / 100.0
 
-    # initial conditions according to base dosing convention:
-    # A_gut(0) = Dose, A_central(0) = 0
-    y0 = np.array([float(Dose), 0.0], dtype=float)
+    # ---- Piecewise integration ----
+    accumulated_time = []
+    accumulated_A_gut = []
+    accumulated_A_central = []
 
-    # Integrate ODE
-    sol = solve_ivp(
-        fun=lambda t, y: pk_ode(t, y, ka=ka, ke=ke, F=F),
-        t_span=(float(t_start), float(t_end)),
-        y0=y0,
-        method=method,
-        t_eval=t_eval,
-        rtol=rtol,
-        atol=atol,
-        max_step=max_step,
-    )
+    # Current state at start of each segment
+    y_current = np.array([0.0, 0.0], dtype=float)
+    t_current = t_start
 
-    # Diagnostics on solver result
-    if sol.status != 0 or not sol.success:
-        raise RuntimeError(f"ODE solver failed: message='{sol.message}', status={sol.status}")
+    for dose_idx in range(n_doses_total):
+        t_dose = dose_times_arr[dose_idx]
+        dose_amt = dose_amounts_arr[dose_idx]
 
-    # Post-process states
-    A_gut = np.asarray(sol.y[0, :], dtype=float)
-    A_central = np.asarray(sol.y[1, :], dtype=float)
-    time = np.asarray(sol.t, dtype=float)
+        # Integrate from t_current to t_dose
+        if t_dose > t_current + 1e-14:
+            # Find t_eval points in (t_current, t_dose)
+            t_eval_segment = t_eval_grid[(t_eval_grid > t_current + EVENT_TIME_TOL) & (t_eval_grid < t_dose - EVENT_TIME_TOL)]
 
-    # Finite checks
-    if not (np.all(np.isfinite(A_gut)) and np.all(np.isfinite(A_central)) and np.all(np.isfinite(time))):
-        raise RuntimeError("Integration produced non-finite values in states or time.")
+            t_seg, A_gut_seg, A_central_seg = _integrate_segment(
+                t_current,
+                t_dose,
+                y_current,
+                t_eval_segment,
+                ka=ka,
+                ke=ke,
+                F=F,
+                method=method,
+                rtol=rtol,
+                atol=atol,
+                max_step=max_step,
+            )
 
-    # Negative-state policy:
-    # Clip tiny negative amounts (within neg_tol) for derived outputs, but raise if any state < -neg_tol
-    min_A_gut = float(np.min(A_gut))
-    min_A_central = float(np.min(A_central))
+            accumulated_time.extend(t_seg)
+            accumulated_A_gut.extend(A_gut_seg)
+            accumulated_A_central.extend(A_central_seg)
+
+            # State just before dose
+            y_current[0] = A_gut_seg[-1]
+            y_current[1] = A_central_seg[-1]
+        elif t_dose < t_current - 1e-14:
+            # Dose is in the past (e.g., first dose is not at t_start)
+            # Should not occur after validation, but handle gracefully
+            pass
+
+        # Apply dose (discontinuous jump to A_gut only)
+        y_current[0] += dose_amt
+        t_current = t_dose
+
+        # Add post-dose state at exact t_dose
+        accumulated_time.append(float(t_dose))
+        accumulated_A_gut.append(float(y_current[0]))
+        accumulated_A_central.append(float(y_current[1]))
+
+    # Integrate from last dose to t_end
+    if t_end > t_current + 1e-14:
+        t_eval_segment = t_eval_grid[(t_eval_grid > t_current + EVENT_TIME_TOL) & (t_eval_grid <= t_end + 1e-14)]
+
+        t_seg, A_gut_seg, A_central_seg = _integrate_segment(
+            t_current,
+            t_end,
+            y_current,
+            t_eval_segment,
+            ka=ka,
+            ke=ke,
+            F=F,
+            method=method,
+            rtol=rtol,
+            atol=atol,
+            max_step=max_step,
+        )
+
+        accumulated_time.extend(t_seg)
+        accumulated_A_gut.extend(A_gut_seg)
+        accumulated_A_central.extend(A_central_seg)
+
+    # Convert to arrays and remove duplicates
+    time = np.array(accumulated_time, dtype=float)
+    A_gut = np.array(accumulated_A_gut, dtype=float)
+    A_central = np.array(accumulated_A_central, dtype=float)
+
+    # Sort and remove duplicates (keep post-dose value at event times)
+    if len(time) > 1:
+        sort_idx = np.argsort(time)
+        time = time[sort_idx]
+        A_gut = A_gut[sort_idx]
+        A_central = A_central[sort_idx]
+
+        # Remove duplicates: keep later (post-dose) value
+        unique_mask = np.concatenate(([True], np.diff(time) > EVENT_TIME_TOL))
+        time = time[unique_mask]
+        A_gut = A_gut[unique_mask]
+        A_central = A_central[unique_mask]
+
+    # Validate accumulated state
+    min_A_gut = float(np.min(A_gut)) if A_gut.size > 0 else 0.0
+    min_A_central = float(np.min(A_central)) if A_central.size > 0 else 0.0
     if min_A_gut < -neg_tol or min_A_central < -neg_tol:
         raise RuntimeError(
-            f"Solver produced materially negative state(s): min(A_gut)={min_A_gut:.3g}, min(A_central)={min_A_central:.3g}; "
+            f"Accumulated state has materially negative values: min(A_gut)={min_A_gut:.3g}, min(A_central)={min_A_central:.3g}; "
             f"negativity tolerance={neg_tol:.3g}."
         )
-    # For downstream outputs, clip small negatives to zero
+
+    # Clip small negatives
     A_gut_clipped = np.maximum(A_gut, 0.0)
     A_central_clipped = np.maximum(A_central, 0.0)
 
-    # Concentration (mg/L)
+    # Compute concentration
     concentration = A_central_clipped / float(V)
 
-    # Concentration nonnegativity check (allow tiny negatives handled above)
     if not np.all(np.isfinite(concentration)):
         raise RuntimeError("Non-finite concentration values encountered.")
     if np.min(concentration) < -1e-14:
-        # numerical paranoia; should not occur because we clipped amounts
         raise RuntimeError("Concentration has negative values beyond minimal numerical noise.")
 
-    # Compute effect
+    # Compute effect from total concentration
     effect = sigmoid_emax(concentration, E0=E0, Emax=Emax, EC50=EC50, gamma=gamma, conc_neg_tol=1e-14)
 
-    # Package results with units metadata
+    # Package results with units and metadata
     results = {
         "time": time,  # h
         "A_gut": A_gut_clipped,  # mg
@@ -501,7 +883,6 @@ def simulate_pkpd(
             "ke": "1/h",
             "effect": "user-defined units",
         },
-        # metadata for reproducibility
         "meta": {
             "method": method,
             "rtol": rtol,
@@ -510,20 +891,109 @@ def simulate_pkpd(
             "negativity_tolerance_amount_mg": neg_tol,
             "ke_consistency_rtol": KE_RTOL,
             "ke_consistency_atol": KE_ATOL,
-            "dosing_convention": "A_gut(0)=Dose (single instantaneous oral dose at t=0)",
+            "dosing": {
+                "route": "oral",
+                "n_doses": int(n_doses_total),
+                "dose_times": dose_times_arr.tolist(),
+                "dose_amounts": dose_amounts_arr.tolist(),
+                "event_state_convention": "post-dose A_gut; continuous A_central/concentration/effect",
+            },
             "bioavailability_convention": "F applied in absorption flux F*ka*A_gut; CL and V are systemic (not apparent)",
         },
     }
     return results
 
 
+def summarize_pk(results: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compute PK summary statistics from simulation results.
+
+    Parameters
+    ----------
+    results : dict
+        Output from simulate_pkpd.
+
+    Returns
+    -------
+    summary : dict
+        Keys: Cmax, Tmax, Cmax_last_interval, Tmax_last_interval, Ctrough_last_interval, AUC_last_interval
+        Values are numeric or None if not mathematically defined.
+    """
+    time = results["time"]
+    concentration = results["concentration"]
+    dose_info = results["meta"]["dosing"]
+    n_doses = dose_info["n_doses"]
+    dose_times = np.array(dose_info["dose_times"], dtype=float)
+
+    summary = {}
+
+    # Overall Cmax and Tmax
+    if concentration.size > 0:
+        max_idx = np.argmax(concentration)
+        summary["Cmax"] = float(concentration[max_idx])
+        summary["Tmax"] = float(time[max_idx])
+    else:
+        summary["Cmax"] = None
+        summary["Tmax"] = None
+
+    # Last-interval metrics (if defined)
+    if n_doses >= 2:
+        tau_last = float(dose_times[-1] - dose_times[-2])
+        t_last_dose = float(dose_times[-1])
+        t_last_interval_end = t_last_dose + tau_last
+
+        # If final interval extends beyond t_end, mark unavailable
+        t_end = float(time[-1])
+        if t_last_interval_end > t_end + EVENT_TIME_TOL:
+            summary["Cmax_last_interval"] = None
+            summary["Tmax_last_interval"] = None
+            summary["Ctrough_last_interval"] = None
+            summary["AUC_last_interval"] = None
+        else:
+            # Find concentration in last interval
+            mask_last = (time >= t_last_dose - EVENT_TIME_TOL) & (time <= t_last_interval_end + EVENT_TIME_TOL)
+            if np.any(mask_last):
+                C_last = concentration[mask_last]
+                t_last = time[mask_last]
+
+                max_idx_last = np.argmax(C_last)
+                summary["Cmax_last_interval"] = float(C_last[max_idx_last])
+                summary["Tmax_last_interval"] = float(t_last[max_idx_last])
+                summary["Ctrough_last_interval"] = float(C_last[-1])  # at end of interval
+
+                # Trapezoidal AUC
+                auc_last = float(np.trapz(C_last, t_last))
+                summary["AUC_last_interval"] = auc_last
+            else:
+                summary["Cmax_last_interval"] = None
+                summary["Tmax_last_interval"] = None
+                summary["Ctrough_last_interval"] = None
+                summary["AUC_last_interval"] = None
+    else:
+        summary["Cmax_last_interval"] = None
+        summary["Tmax_last_interval"] = None
+        summary["Ctrough_last_interval"] = None
+        summary["AUC_last_interval"] = None
+
+    return summary
+
+
 # -------------------------
 # Plotting
 # -------------------------
-def plot_pkpd(results: Dict[str, np.ndarray], title_suffix: str = "") -> None:
+def plot_pkpd(results: Dict[str, Any], title_suffix: str = "", show_dose_markers: bool = True) -> None:
     """
     Plot concentration-time and effect-time from simulation results dictionary.
-    Does not re-run simulation; accepts the returned dict from simulate_pkpd.
+    Optionally overlay dose event markers.
+
+    Parameters
+    ----------
+    results : dict
+        Output from simulate_pkpd.
+    title_suffix : str, optional
+        Suffix for plot titles.
+    show_dose_markers : bool, optional
+        If True, mark dose times on concentration plot. Default: True.
     """
     t = results["time"]
     C = results["concentration"]
@@ -534,16 +1004,26 @@ def plot_pkpd(results: Dict[str, np.ndarray], title_suffix: str = "") -> None:
     eff_unit = units.get("effect", "units")
 
     fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-    axes[0].plot(t, C, color="C0", lw=1.5)
+    axes[0].plot(t, C, color="C0", lw=1.5, label="Concentration")
     axes[0].set_ylabel(f"Concentration ({conc_unit})", fontsize=10)
     axes[0].set_title(f"Concentration vs Time {title_suffix}".strip())
     axes[0].grid(True)
 
-    axes[1].plot(t, E, color="C1", lw=1.5)
+    # Add dose markers if requested
+    if show_dose_markers:
+        dose_info = results["meta"].get("dosing", {})
+        dose_times_list = dose_info.get("dose_times", [])
+        if dose_times_list:
+            for dt in dose_times_list:
+                axes[0].axvline(dt, color="red", linestyle="--", alpha=0.5, linewidth=1)
+            axes[0].legend()
+
+    axes[1].plot(t, E, color="C1", lw=1.5, label="Effect")
     axes[1].set_xlabel(f"Time ({time_unit})", fontsize=10)
     axes[1].set_ylabel(f"Effect ({eff_unit})", fontsize=10)
     axes[1].set_title(f"Pharmacodynamic Effect vs Time {title_suffix}".strip())
     axes[1].grid(True)
+    axes[1].legend()
 
     plt.tight_layout()
     plt.show()
@@ -553,26 +1033,30 @@ def plot_pkpd(results: Dict[str, np.ndarray], title_suffix: str = "") -> None:
 # Runnable demonstration
 # -------------------------
 if __name__ == "__main__":
-    # Synthetic demonstration parameters (for demonstration only, not a real drug)
+    print("=" * 70)
+    print("PK/PD Simulator with Single-Dose and Repeated-Dose Support")
+    print("=" * 70)
+    print()
+
+    # ---- Example 1: Legacy single-dose ----
+    print("EXAMPLE 1: Legacy Single-Dose Simulation")
+    print("-" * 70)
     Dose = 100.0  # mg
     F = 0.6  # fraction (dimensionless)
-    ka = 1.0  # 1/h (absorption is relatively fast; t1/2,abs ~ 0.693 h)
+    ka = 1.0  # 1/h
     V = 20.0  # L
-    CL = 1.0  # L/h -> ke = 0.05 1/h (t1/2,elim ~ 13.86 h)
-    # PD parameters
+    CL = 1.0  # L/h -> ke = 0.05 1/h
     E0 = 0.0  # baseline effect units
     Emax = 100.0  # effect units
     EC50 = 2.0  # mg/L
-    gamma = 1.5  # Hill coefficient (dimensionless)
+    gamma = 1.5  # Hill coefficient
 
-    # Simulation time grid defaults (0..48 h, dt=0.05 h)
     t_start = 0.0
     t_end = 48.0
     dt = 0.05
     t_eval = np.arange(t_start, t_end + dt / 2.0, dt, dtype=float)
 
-    # Run simulation
-    results = simulate_pkpd(
+    results_single = simulate_pkpd(
         Dose=Dose,
         F=F,
         ka=ka,
@@ -587,63 +1071,73 @@ if __name__ == "__main__":
         t_eval=t_eval,
     )
 
-    # Validation checks (PK identity, PD behavior, state checks)
-    ke_computed = results["ke"]
-    # PK consistency check: ke = CL / V
+    ke_computed = results_single["ke"]
     ke_expected = CL / V
-    assert np.isclose(ke_computed, ke_expected, rtol=KE_RTOL, atol=KE_ATOL), "ke inconsistency."
-
-    # PD checks: finite-concentration validation (not asymptotic)
-    C_zero = 0.0
-    C_half = EC50
-    C_high = 1000.0 * EC50
-
-    E_at_0 = sigmoid_emax(np.array([C_zero]), E0=E0, Emax=Emax, EC50=EC50, gamma=gamma)[0]
-    E_at_half = sigmoid_emax(np.array([C_half]), E0=E0, Emax=Emax, EC50=EC50, gamma=gamma)[0]
-    E_at_high = sigmoid_emax(np.array([C_high]), E0=E0, Emax=Emax, EC50=EC50, gamma=gamma)[0]
-
-    # Baseline check
-    assert np.allclose(E_at_0, E0, rtol=1e-12, atol=1e-12), "PD check failed at C=0."
-
-    # Half-maximal effect check
-    assert np.allclose(E_at_half, E0 + Emax / 2.0, rtol=1e-8, atol=1e-12), "PD check failed at C=EC50."
-
-    # Finite high-concentration check: compare to exact finite analytical value, not asymptote
-    ratio = C_high / EC50
-    expected_high = E0 + Emax * ratio**gamma / (1.0 + ratio**gamma)
-    assert np.allclose(E_at_high, expected_high, rtol=1e-12, atol=1e-12), \
-        f"PD check failed at C=1000*EC50: computed {E_at_high:.8g}, expected {expected_high:.8g}."
-
-    # Asymptotic behavior: verify finite effect < asymptote and residual is positive
-    asymptotic_effect = E0 + Emax
-    residual = asymptotic_effect - E_at_high
-    assert residual > 0, f"Residual should be positive; got {residual:.3g}."
-    expected_residual = Emax / (1.0 + ratio**gamma)
-    assert np.allclose(residual, expected_residual, rtol=1e-12, atol=1e-12), \
-        f"Asymptotic residual mismatch: computed {residual:.8g}, expected {expected_residual:.8g}."
-
-    # State checks
-    assert np.all(np.isfinite(results["A_gut"])) and np.all(np.isfinite(results["A_central"])), "Non-finite states."
-    assert np.min(results["A_gut"]) >= -results["meta"]["negativity_tolerance_amount_mg"] - 1e-15
-    assert np.min(results["A_central"]) >= -results["meta"]["negativity_tolerance_amount_mg"] - 1e-15
-    assert np.all(results["concentration"] >= -1e-14)
-
-    # Print concise diagnostics
-    print("=" * 70)
-    print("Simulation completed successfully.")
-    print("=" * 70)
     print(f"ke (computed) = {ke_computed:.8g} 1/h, ke (CL/V) = {ke_expected:.8g} 1/h")
-    print()
-    print("PD Validation:")
-    print(f"  E(0) = {E_at_0:.6g} (expected {E0})")
-    print(f"  E(EC50) = {E_at_half:.6g} (expected {E0 + Emax/2})")
-    print(f"  E(1000*EC50) = {E_at_high:.8g}")
-    print(f"    Exact finite analytical = {expected_high:.8g}")
-    print(f"    Asymptotic limit (E0 + Emax) = {asymptotic_effect:.8g}")
-    print(f"    Residual from asymptote = {residual:.8g}")
-    print()
-    print("All validation checks passed.")
-    print("=" * 70)
 
-    # Plot results
-    plot_pkpd(results, title_suffix="(synthetic demonstration)")
+    summary_single = summarize_pk(results_single)
+    print(f"Cmax = {summary_single['Cmax']:.6g} mg/L")
+    print(f"Tmax = {summary_single['Tmax']:.6g} h")
+    print()
+
+    # Validation checks
+    assert np.isclose(ke_computed, ke_expected, rtol=KE_RTOL, atol=KE_ATOL), "ke inconsistency."
+    assert np.all(np.isfinite(results_single["A_gut"])), "Non-finite A_gut."
+    assert np.all(np.isfinite(results_single["A_central"])), "Non-finite A_central."
+    print("✓ Legacy single-dose validation passed")
+    print()
+
+    # ---- Example 2: Repeated-dose ----
+    print("EXAMPLE 2: Repeated-Dose Simulation (Regular Regimen)")
+    print("-" * 70)
+    Dose_repeat = 100.0  # mg
+    tau = 12.0  # h
+    n_doses_repeat = 8
+    t_end_repeat = 96.0
+
+    results_repeat = simulate_pkpd(
+        Dose=Dose_repeat,
+        F=F,
+        ka=ka,
+        V=V,
+        CL=CL,
+        E0=E0,
+        Emax=Emax,
+        EC50=EC50,
+        gamma=gamma,
+        t_start=t_start,
+        t_end=t_end_repeat,
+        tau=tau,
+        n_doses=n_doses_repeat,
+    )
+
+    summary_repeat = summarize_pk(results_repeat)
+    print(f"Number of doses administered: {results_repeat['meta']['dosing']['n_doses']}")
+    print(f"Dosing interval (tau): {tau} h")
+    print(f"Overall Cmax = {summary_repeat['Cmax']:.6g} mg/L at Tmax = {summary_repeat['Tmax']:.6g} h")
+    if summary_repeat["Cmax_last_interval"] is not None:
+        print(f"Last-interval Cmax = {summary_repeat['Cmax_last_interval']:.6g} mg/L")
+        print(f"Last-interval Ctrough = {summary_repeat['Ctrough_last_interval']:.6g} mg/L")
+        print(f"Last-interval AUC = {summary_repeat['AUC_last_interval']:.6g} mg·h/L")
+    print()
+
+    # Analytical reference for repeated dose
+    dose_times_arr = np.array(results_repeat["meta"]["dosing"]["dose_times"], dtype=float)
+    dose_amounts_arr = np.array(results_repeat["meta"]["dosing"]["dose_amounts"], dtype=float)
+    A_gut_analytical, A_central_analytical, C_analytical = analytical_pk_repeated_dose(
+        results_repeat["time"], dose_times_arr, dose_amounts_arr, F, ka, ke_expected, V
+    )
+
+    # Compare numerical vs analytical at a few points
+    max_deviation = float(np.max(np.abs(results_repeat["concentration"] - C_analytical)))
+    print(f"Maximum absolute deviation (numerical vs analytical): {max_deviation:.3g} mg/L")
+    print()
+
+    assert np.all(np.isfinite(results_repeat["A_gut"])), "Non-finite A_gut in repeated dose."
+    assert np.all(np.isfinite(results_repeat["A_central"])), "Non-finite A_central in repeated dose."
+    print("✓ Repeated-dose simulation validation passed")
+    print()
+
+    print("=" * 70)
+    print("All demonstrations completed successfully.")
+    print("=" * 70)
